@@ -14,7 +14,7 @@ your phone when you want it.
 [![Made with tmux + ttyd](https://img.shields.io/badge/made%20with-tmux%20%2B%20ttyd-1f2937)](https://github.com/tsl0922/ttyd)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-![Dispatch demo: drag a ticket and a live Claude Code session plans then implements in the same conversation](docs/assets/hero.gif)
+![Dispatch demo: triage the Inbox, drag a ticket to In Progress, pick repos and a playbook, and a live Claude Code session builds the feature through to Agent Done](docs/assets/hero.gif)
 
 </div>
 
