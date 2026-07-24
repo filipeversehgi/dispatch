@@ -29,6 +29,46 @@ const PATCH_HANDLER =
 const PATCH_TARGET = "new l.WebLinksAddon";
 
 /**
+ * Bridges single-finger touch drag to synthetic wheel scroll for tmux's alternate buffer, because
+ * xterm.js 5.x cancels its own touch handlers whenever tmux owns the mouse
+ * (`coreMouseService.areMouseEventsActive`) and upstream has declined to fix this for mobile
+ * (xterm.js #1007 closed not-planned, #5377 deprioritizes mobile) — the wheel path (already
+ * forwarded to tmux as an SGR mouse report) is the only working scroll input left, so this
+ * dispatches synthetic WheelEvents from raw touch deltas. Reads `window.term` lazily at each
+ * touchstart rather than at script-load time, so patch-vs-ttyd load order never matters. Engages
+ * only once `window.term.buffer.active.type==="alternate"` (tmux's scrollback view) — on the
+ * normal buffer xterm's native touch scroll already works, and engaging here too would
+ * double-scroll. `touchmove` is registered `{passive:false}` because iOS silently no-ops
+ * `preventDefault()` on passive listeners; without it the page scrolls underneath the synthetic
+ * wheel dispatch. An 8px slop before engaging keeps a plain tap free to focus/type instead of
+ * being swallowed as a drag. A second concurrent touch (pinch-zoom) always resets tracking so
+ * two-finger gestures pass through untouched, and no momentum/inertia is applied (deliberate v1
+ * scope).
+ * @see docs/ARCHITECTURE.md#terminal-ttyd
+ */
+const TOUCH_SCROLL_SCRIPT =
+  "(()=>{let tracking=false,engaged=false,startY=0,lastY=0;" +
+  'document.addEventListener("touchstart",(e)=>{' +
+  "if(e.touches.length!==1){tracking=false;engaged=false;return}" +
+  "const tgt=e.target;" +
+  'if(!tgt||typeof tgt.closest!=="function"||!tgt.closest("#terminal,.xterm")){tracking=false;engaged=false;return}' +
+  "const term=window.term;" +
+  'if(!term||!term.buffer||!term.buffer.active||term.buffer.active.type!=="alternate"){tracking=false;engaged=false;return}' +
+  "tracking=true;engaged=false;startY=lastY=e.touches[0].clientY" +
+  "},true);" +
+  'document.addEventListener("touchmove",(e)=>{' +
+  "if(!tracking||e.touches.length!==1)return;" +
+  "const t=e.touches[0];" +
+  "if(!engaged){if(Math.abs(t.clientY-startY)<8)return;engaged=true}" +
+  "e.preventDefault();" +
+  "const deltaY=lastY-t.clientY;lastY=t.clientY;" +
+  'if(deltaY!==0)e.target.dispatchEvent(new WheelEvent("wheel",{deltaY,deltaMode:0,bubbles:true,cancelable:true,clientX:t.clientX,clientY:t.clientY}))' +
+  "},{passive:false,capture:true});" +
+  'document.addEventListener("touchend",()=>{tracking=false;engaged=false},true);' +
+  'document.addEventListener("touchcancel",()=>{tracking=false;engaged=false},true)' +
+  "})()";
+
+/**
  * One named, independently-degrading patch to ttyd's served index: `target` is an exact-count-1
  * literal anchor in the captured stock bundle, `build` returns the full replacement string, and
  * `disabledWarning` names the feature lost when the anchor drifts.
@@ -41,7 +81,7 @@ interface NamedPatch {
 }
 
 /**
- * Five independent patches applied to ttyd's served index, in order. Each anchor is checked for
+ * Seven independent patches applied to ttyd's served index, in order. Each anchor is checked for
  * an exact-count-1 occurrence before being applied; a drifted anchor skips ONLY that patch, never
  * the others, and is never force-applied via regex or fuzzy matching (59-RESEARCH.md Anchors 1-3).
  * @remarks `cmd-click-osc8` sets `terminal.options.linkHandler` because real Claude Code `⏺`
@@ -73,6 +113,14 @@ interface NamedPatch {
  * `font-face-inject` targets the served index's single `</style>` closing tag and has no anchor
  * overlap with any other patch, so its position past the other four is unconstrained beyond
  * "last" (TERM-01, 67-RESEARCH.md Pattern 1/2).
+ * @remarks `mobile-viewport` and `touch-scroll` sit between `shift-enter` and `font-face-inject`,
+ * with `mobile-viewport` strictly first: `mobile-viewport` targets the single `<meta
+ * charset="UTF-8">` tag and self-re-emits it verbatim (same pattern as `font-load-gate`'s
+ * downstream anchors) followed by the new viewport meta, so it never disturbs any anchor another
+ * patch depends on. `touch-scroll` targets the served index's single `</head>` closing tag
+ * (verified count-1 against the live stock capture; no earlier patch emits or consumes it) and
+ * self-re-emits it verbatim after injecting `TOUCH_SCROLL_SCRIPT` in a `<script>` element. Neither
+ * new build's output contains any other patch's anchor substring.
  * @remarks `font-load-gate`'s built expression guards `document.fonts&&document.fonts.load`
  * BEFORE constructing the `Promise.race`, falling back to `Promise.resolve()` when the CSS Font
  * Loading API is absent entirely — a bare `document.fonts.load(...)` reference would throw
@@ -120,9 +168,26 @@ const PATCHES: NamedPatch[] = [
     disabledWarning: "shift+enter newline disabled",
   },
   {
+    name: "mobile-viewport",
+    target: '<meta charset="UTF-8">',
+    build: () =>
+      '<meta charset="UTF-8">' +
+      '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">',
+    disabledWarning:
+      "mobile viewport meta disabled (remote pages render desktop-scaled on phones)",
+  },
+  {
+    name: "touch-scroll",
+    target: "</head>",
+    build: () => `<script>${TOUCH_SCROLL_SCRIPT}</script></head>`,
+    disabledWarning:
+      "mobile touch-scroll disabled (finger drag cannot scroll terminal history)",
+  },
+  {
     name: "font-face-inject",
     target: "</style>",
     build: () =>
+      "html,body{-webkit-text-size-adjust:100%;text-size-adjust:100%}" +
       `@font-face{font-family:"${FONT_FAMILY}";` +
       `src:url(data:font/woff2;charset=utf-8;base64,${NERD_FONT_WOFF2_BASE64}) format("woff2");` +
       `font-weight:400;font-style:normal;font-display:block}</style>`,
@@ -140,8 +205,8 @@ const PATCHES: NamedPatch[] = [
  * into the artifact.
  * @remarks Anchor counts run against the ALREADY-MUTATED string in PATCHES order, not the
  * pristine capture — so no patch's `build()` output may contain another patch's anchor substring
- * (holds for the current three, verified against the live bundle), or the later patch's count
- * silently drifts to 0/2 and the boot log misreports it as ttyd version drift.
+ * (holds for all seven, verified against the live bundle), or the later patch's count silently
+ * drifts to 0/2 and the boot log misreports it as ttyd version drift.
  * @see docs/ARCHITECTURE.md#terminal-ttyd
  */
 export function patchIndexHtml(html: string): {
@@ -246,7 +311,7 @@ export async function provisionTtydIndex(): Promise<void> {
       html = await captureStockIndex();
     } catch (err) {
       console.warn(
-        `[ttyd-index] capture failed — cmd+click links and shift+enter newline disabled: ${(err as Error).message}`,
+        `[ttyd-index] capture failed — all served-index patches disabled (cmd+click links, shift+enter, Nerd Font, mobile viewport/touch-scroll): ${(err as Error).message}`,
       );
       await removeStaleArtifact();
       return;
@@ -268,13 +333,13 @@ export async function provisionTtydIndex(): Promise<void> {
       await writeFileAtomic(TTYD_INDEX_PATH, patched, { mode: 0o644 });
     } catch (err) {
       console.warn(
-        `[ttyd-index] artifact write failed — cmd+click links and shift+enter newline disabled: ${(err as Error).message}`,
+        `[ttyd-index] artifact write failed — all served-index patches disabled (cmd+click links, shift+enter, Nerd Font, mobile viewport/touch-scroll): ${(err as Error).message}`,
       );
       await removeStaleArtifact();
     }
   } catch (err) {
     console.warn(
-      `[ttyd-index] provisioning failed — cmd+click links and shift+enter newline disabled: ${(err as Error).message}`,
+      `[ttyd-index] provisioning failed — all served-index patches disabled (cmd+click links, shift+enter, Nerd Font, mobile viewport/touch-scroll): ${(err as Error).message}`,
     );
   }
 }
