@@ -2,6 +2,12 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import "@xterm/xterm/css/xterm.css";
+import type { TerminalThemeResponse } from "../shared/types.js";
+import {
+  FONT_FAMILY,
+  FONT_SPEC,
+  NERD_FONT_WOFF2_BASE64,
+} from "../shared/nerd-font-mono.js";
 
 const OUTPUT = 0x30;
 const TITLE = 0x31;
@@ -61,19 +67,90 @@ function sendHandshake(ws: WebSocket, term: Terminal): void {
 }
 
 /**
+ * Fetch the resolved Ghostty-parity theme/font block. Returns `null` on any network/non-ok
+ * failure — the backend resolver itself never throws, but the client must still open with plain
+ * xterm defaults if the fetch itself cannot complete.
+ */
+async function fetchTheme(): Promise<TerminalThemeResponse | null> {
+  try {
+    const res = await fetch("/api/terminal-theme");
+    if (!res.ok) return null;
+    return (await res.json()) as TerminalThemeResponse;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Self-hosts the bundled Nerd Font via a data-URI `@font-face` and enables ligature/stylistic-set
+ * shaping on `.xterm` — the DOM renderer shapes `font-feature-settings` natively, so no WebGL
+ * addon is needed. Mirrors the proven `font-face-inject` patch in `bootstrap/ttyd-index-setup.ts`
+ * rather than reusing it directly, since that patch operates on ttyd's served HTML string, not a
+ * live document.
+ */
+function injectFontFace(): void {
+  const style = document.createElement("style");
+  style.textContent = `
+    @font-face {
+      font-family: "${FONT_FAMILY}";
+      src: url(data:font/woff2;charset=utf-8;base64,${NERD_FONT_WOFF2_BASE64}) format("woff2");
+      font-weight: 400;
+      font-style: normal;
+      font-display: block;
+    }
+    .xterm {
+      font-feature-settings: "ss01" 1, "calt" 1, "liga" 1;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+/**
  * Builds the terminal instance and the reverse-tabnabbing-safe link handlers, wired to BOTH
  * `WebLinksAddon` (plain-text URLs) and `linkHandler` (OSC-8, the code path real Claude Code `⏺`
  * output uses and `WebLinksAddon` never fires for) so cmd-click parity holds for either link
- * source.
+ * source. `theme` is `null` when the theme fetch failed — the terminal then opens with plain
+ * xterm defaults instead of a half-applied theme.
  * @see docs/ARCHITECTURE.md#terminal-ttyd
  */
-function createTerminal(): { term: Terminal; fit: FitAddon } {
-  const term = new Terminal({ cursorBlink: false, allowProposedApi: true });
+function createTerminal(theme: TerminalThemeResponse | null): {
+  term: Terminal;
+  fit: FitAddon;
+} {
+  const term = new Terminal({
+    allowProposedApi: true,
+    cursorBlink: theme?.cursorBlink ?? false,
+    ...(theme
+      ? {
+          theme: theme.theme,
+          fontFamily: `"${theme.fontFamily}", monospace`,
+          fontSize: theme.fontSize,
+          fontWeight: theme.fontWeight,
+          cursorStyle: theme.cursorStyle,
+          ...(theme.letterSpacing !== undefined
+            ? { letterSpacing: theme.letterSpacing }
+            : {}),
+        }
+      : {}),
+  });
   const fit = new FitAddon();
   term.loadAddon(fit);
   term.loadAddon(new WebLinksAddon(activateLink));
   term.options.linkHandler = { activate: activateLink };
   return { term, fit };
+}
+
+/**
+ * Bounds font-readiness against a fixed timeout so the terminal always opens even if the woff2
+ * never loads (a slow/offline data-URI decode, or a browser without the Font Loading API) —
+ * mirrors the ttyd stock-index `font-load-gate` patch's `Promise.race` shape.
+ */
+async function fontsReady(): Promise<void> {
+  if (!document.fonts?.load) return;
+  await Promise.race([
+    document.fonts.load(FONT_SPEC).catch(() => {}),
+    new Promise((resolve) => setTimeout(resolve, 1500)),
+  ]);
 }
 
 /**
@@ -176,11 +253,14 @@ function connect(term: Terminal, mount: HTMLElement, fit: FitAddon): void {
   new ResizeObserver(() => fit.fit()).observe(mount);
 }
 
-function main(): void {
+async function main(): Promise<void> {
   const mount = document.getElementById("terminal");
   if (!mount) return;
-  const { term, fit } = createTerminal();
+  const theme = await fetchTheme();
+  injectFontFace();
+  const { term, fit } = createTerminal(theme);
+  await fontsReady();
   connect(term, mount, fit);
 }
 
-main();
+void main();
