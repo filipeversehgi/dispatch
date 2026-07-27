@@ -3,7 +3,8 @@
     "src/server/bootstrap/index.ts",
     "src/server/bootstrap/cli.ts",
     "src/web/main.tsx",
-    "src/web/index.html"
+    "src/web/index.html",
+    "src/web/terminal-main.ts"
   ],
   "project": ["src/**/*.{ts,tsx}"],
   "ignoreExportsUsedInFile": true,

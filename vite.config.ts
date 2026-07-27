@@ -1,9 +1,11 @@
+import { resolve } from "node:path";
 import { defineConfig, type PluginOption } from "vite";
 import react from "@vitejs/plugin-react";
 import { visualizer } from "rollup-plugin-visualizer";
 
 export default defineConfig({
   root: "src/web",
+  base: "./",
   plugins: [
     react(),
     ...(process.env.ANALYZE === "1"
@@ -21,6 +23,12 @@ export default defineConfig({
   build: {
     outDir: "../../dist/web",
     emptyOutDir: true,
+    rollupOptions: {
+      input: {
+        main: resolve(import.meta.dirname, "src/web/index.html"),
+        terminal: resolve(import.meta.dirname, "src/web/terminal.html"),
+      },
+    },
   },
   server: {
     proxy: {
