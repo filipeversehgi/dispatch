@@ -1,5 +1,6 @@
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * Canonical `~/.dispatch` root — the single source of truth for on-disk config/playbook locations,
@@ -45,6 +46,20 @@ export const UPDATE_CACHE_PATH = path.join(DISPATCH_DIR, "update-check.json");
 export const TTYD_INDEX_PATH = path.join(
   DISPATCH_DIR,
   "ttyd-index.patched.html",
+);
+
+/**
+ * The BUILT frontend bundle root, resolving to `<project-root>/dist/web` in BOTH dev and prod
+ * (this module sits 4 directory levels below the project root in each layout: `src/server/services/
+ * infra/` and `dist/server/services/infra/`). Deliberately distinct from `bootstrap/index.ts`'s
+ * `webRoot` (`../../web`, 2 levels), which resolves to the SOURCE `src/web` in dev — usable for
+ * Vite HMR passthrough of the board SPA, but not for serving the terminal client's built output,
+ * which only exists post-`vite build`. Homed in `services/infra` (not `bootstrap`) so the terminal
+ * route (`routes/`) can import it without crossing the routes→bootstrap boundary.
+ * @see docs/ARCHITECTURE.md#terminal-ttyd
+ */
+export const WEB_DIST_DIR = fileURLToPath(
+  new URL("../../../../dist/web", import.meta.url),
 );
 
 /**
