@@ -346,6 +346,52 @@ export interface BoardSnapshot {
 }
 
 /**
+ * xterm `ITheme`-compatible named-color set the native terminal client applies. Mirrors
+ * `@xterm/xterm`'s `ITheme` shape exactly (not re-exported from the package) so `shared/` stays
+ * dependency-free of the xterm package the server never installs.
+ */
+export interface TerminalTheme {
+  background: string;
+  foreground: string;
+  cursor: string;
+  cursorAccent?: string;
+  selectionBackground?: string;
+  selectionForeground?: string;
+  black: string;
+  red: string;
+  green: string;
+  yellow: string;
+  blue: string;
+  magenta: string;
+  cyan: string;
+  white: string;
+  brightBlack: string;
+  brightRed: string;
+  brightGreen: string;
+  brightYellow: string;
+  brightBlue: string;
+  brightMagenta: string;
+  brightCyan: string;
+  brightWhite: string;
+}
+
+/**
+ * Wire shape for `GET /api/terminal-theme`: the resolved color theme plus the font block the
+ * native terminal client applies to `Terminal` options. `fontFamily` always names the bundled
+ * self-hosted Nerd Font, never the user's raw Ghostty `font-family` string, since the client can
+ * only render fonts it self-hosts.
+ */
+export interface TerminalThemeResponse {
+  theme: TerminalTheme;
+  fontFamily: string;
+  fontSize: number;
+  fontWeight: number;
+  cursorStyle: "block" | "underline" | "bar";
+  cursorBlink: boolean;
+  letterSpacing?: number;
+}
+
+/**
  * A git repo surfaced by folder discovery: its absolute path, display name, and
  * detected base branch. The shape the discover/add workspace endpoints return.
  */
