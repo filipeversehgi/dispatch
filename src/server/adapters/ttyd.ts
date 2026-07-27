@@ -20,6 +20,24 @@ const TTYD_RUNTIME_REVISION_MARKER = `"${TTYD_RUNTIME_REVISION_KEY}":${TTYD_RUNT
  */
 const TTYD_RUNTIME_REVISION_RETAINED_KEY = `${TTYD_RUNTIME_REVISION_KEY}_${TTYD_RUNTIME_REVISION}`;
 
+const escapeRegExp = (s: string): string =>
+  s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Boundary-anchored matchers for the current revision inside a ttyd proctitle. A bare substring
+ * `includes` of the revision-4 marker would also fire on a future revision 40–49 (`…REVISION":4`
+ * is a prefix of `…REVISION":40`, and likewise for the retained key), silently adopting a
+ * process spawned by an incompatible runtime contract. The trailing `(?!\d)` negative lookahead
+ * pins each match to exactly this revision.
+ * @see docs/ARCHITECTURE.md#terminal-ttyd
+ */
+const REVISION_MARKER_RE = new RegExp(
+  `${escapeRegExp(TTYD_RUNTIME_REVISION_MARKER)}(?!\\d)`,
+);
+const REVISION_RETAINED_KEY_RE = new RegExp(
+  `${escapeRegExp(TTYD_RUNTIME_REVISION_RETAINED_KEY)}(?!\\d)`,
+);
+
 /**
  * Dark xterm `ITheme` delivered to ttyd via `-t theme=` (SET_PREFERENCES over the websocket).
  * Hardcoded hex/rgba, not a CSS-variable reference, because the ttyd client is a separate
@@ -489,8 +507,7 @@ async function scanDspTtydProcesses(): Promise<{
     const argv = m[2].trim().split(/\s+/);
     if (path.basename(argv[0]) !== "ttyd") continue;
     const hasCurrentRevision =
-      m[2].includes(TTYD_RUNTIME_REVISION_MARKER) ||
-      m[2].includes(TTYD_RUNTIME_REVISION_RETAINED_KEY);
+      REVISION_MARKER_RE.test(m[2]) || REVISION_RETAINED_KEY_RE.test(m[2]);
     if (
       !(argv.includes("tmux") && argv.includes("attach")) &&
       !hasCurrentRevision
