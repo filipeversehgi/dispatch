@@ -8,6 +8,7 @@ const TITLE = 0x31;
 
 const RECONNECT_DELAY_MS = 1000;
 const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_STABILITY_MS = 3000;
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -108,7 +109,7 @@ function attachShiftEnterHandler(
 
 /**
  * Owns one WebSocket's full lifecycle (handshake, INPUT/RESIZE wiring, OUTPUT/TITLE dispatch, and
- * a bounded reconnect on an unclean close) so `main()` stays a single call. `term.onData`/
+ * a bounded reconnect on close) so `main()` stays a single call. `term.onData`/
  * `term.onResize` are registered exactly ONCE against the `socket` closure variable rather than
  * inside `ws.onopen` — re-registering them per reconnect would stack a new listener on every
  * attempt, each still holding its own now-closed WebSocket, so a later reconnect would throw on
@@ -116,6 +117,11 @@ function attachShiftEnterHandler(
  * (e.g. a backend restart re-adopting ttyd) — the board's own `terminalError`/`ttydPort` contract
  * stays server-driven via `recordTtydExit` on a real ttyd exit, so this client never sets a
  * terminal-error state itself.
+ * @remarks The attempt budget resets only after a connection stays open for
+ * `RECONNECT_STABILITY_MS`, never on bare `onopen`: a ttyd that accepts the socket then closes
+ * immediately (its tmux target vanished while the process lingers, so `recordTtydExit` never
+ * fires) would otherwise reset the budget every cycle and reconnect forever, never letting the
+ * bounded budget exhaust and the server-driven error contract surface.
  */
 function connect(term: Terminal, mount: HTMLElement, fit: FitAddon): void {
   let attempts = 0;
@@ -136,10 +142,13 @@ function connect(term: Terminal, mount: HTMLElement, fit: FitAddon): void {
     const ws = new WebSocket(deriveWebSocketUrl(), ["tty"]);
     ws.binaryType = "arraybuffer";
     socket = ws;
+    let stableTimer: ReturnType<typeof setTimeout> | undefined;
 
     ws.onopen = () => {
-      attempts = 0;
       sendHandshake(ws, term);
+      stableTimer = setTimeout(() => {
+        attempts = 0;
+      }, RECONNECT_STABILITY_MS);
     };
 
     ws.onmessage = (event) => {
@@ -152,6 +161,7 @@ function connect(term: Terminal, mount: HTMLElement, fit: FitAddon): void {
     };
 
     ws.onclose = () => {
+      if (stableTimer !== undefined) clearTimeout(stableTimer);
       if (attempts >= MAX_RECONNECT_ATTEMPTS) return;
       attempts += 1;
       setTimeout(open, RECONNECT_DELAY_MS * attempts);
