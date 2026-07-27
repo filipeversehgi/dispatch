@@ -6,9 +6,19 @@ import { store } from "../store/board.store.js";
 import { FONT_FAMILY } from "../../shared/nerd-font-mono.js";
 
 const execFileP = promisify(execFile);
-const TTYD_RUNTIME_REVISION = 3;
+const TTYD_RUNTIME_REVISION = 4;
 const TTYD_RUNTIME_REVISION_KEY = "DISPATCH_TTYD_REVISION";
 const TTYD_RUNTIME_REVISION_MARKER = `"${TTYD_RUNTIME_REVISION_KEY}":${TTYD_RUNTIME_REVISION}`;
+
+/**
+ * The `DISPATCH_NATIVE_TERMINAL` argv token, `-t`'d as a retained bare key (arbitrary value `1`)
+ * so a flag-ON ttyd stays fingerprintable even after `-t theme=…` (the flag-OFF marker's home) is
+ * dropped. The revision lives in the KEY, not the value, because ttyd rewrites `=`→space in its
+ * proctitle — a value-side revision would split into two separate, ungreppable tokens
+ * (RESEARCH.md §4, empirically verified against installed ttyd 1.7.7).
+ * @see docs/ARCHITECTURE.md#terminal-ttyd
+ */
+const TTYD_RUNTIME_REVISION_RETAINED_KEY = `${TTYD_RUNTIME_REVISION_KEY}_${TTYD_RUNTIME_REVISION}`;
 
 /**
  * Dark xterm `ITheme` delivered to ttyd via `-t theme=` (SET_PREFERENCES over the websocket).
@@ -165,12 +175,19 @@ export function getLiveTtydPort(session: string): number | null {
  * (72-RESEARCH.md) to change ttyd's server-side routing only, never the served bytes, so the
  * boot-time index-patch pipeline needs no change. ttyd stays loopback-bound (`-i 127.0.0.1 -p 0`
  * unchanged) — reachable only through the proxy.
+ * @remarks `DISPATCH_NATIVE_TERMINAL` is read fresh from `process.env` on every spawn, never
+ * cached, so a backend restart with a flipped flag takes effect on the very next spawn. ON drops
+ * `-I`/`-t theme|fontFamily|fontSize` (dispatch's own client now owns the look) and substitutes
+ * `TTYD_RUNTIME_REVISION_RETAINED_KEY` as the re-adoption fingerprint that would otherwise be lost
+ * with the theme JSON; OFF keeps today's exact argv shape.
+ * @see docs/ARCHITECTURE.md#terminal-ttyd
  */
 async function spawnTtyd(
   session: string,
   cardId: string,
   indexPath: string | null,
 ): Promise<number> {
+  const nativeTerminal = Boolean(process.env.DISPATCH_NATIVE_TERMINAL);
   const child = spawn(
     "ttyd",
     [
@@ -181,15 +198,23 @@ async function spawnTtyd(
       "0",
       "-b",
       `/sessions/${cardId}/terminal`,
-      ...(indexPath != null ? ["-I", indexPath] : []),
+      ...(nativeTerminal
+        ? []
+        : indexPath != null
+          ? ["-I", indexPath]
+          : []),
       "-t",
       "disableLeaveAlert=true",
-      "-t",
-      `fontFamily=${FONT_FAMILY}`,
-      "-t",
-      "fontSize=15",
-      "-t",
-      `theme=${JSON.stringify(DARK_THEME)}`,
+      ...(nativeTerminal
+        ? ["-t", `${TTYD_RUNTIME_REVISION_RETAINED_KEY}=1`]
+        : [
+            "-t",
+            `fontFamily=${FONT_FAMILY}`,
+            "-t",
+            "fontSize=15",
+            "-t",
+            `theme=${JSON.stringify(DARK_THEME)}`,
+          ]),
       "tmux",
       "attach",
       "-t",
@@ -441,6 +466,11 @@ export async function findDspTtydOrphans(): Promise<number[]> {
 /**
  * Classify the unchanged Dispatch ttyd ownership fingerprint by runtime-contract compatibility.
  * Every fingerprint match remains sweepable, while only an exact current revision is adoptable.
+ * `hasCurrentRevision` matches EITHER the flag-OFF JSON marker (embedded in `-t theme=…`) OR the
+ * flag-ON retained-key token (`-t DISPATCH_TTYD_REVISION_<N>=1`, survives with the theme JSON
+ * gone) — matching only one form would leave the other flag state's ttyd sweepable but never
+ * re-adoptable, a resilience regression on every restart (CONTEXT "Preserve ttyd re-adoption
+ * fingerprint").
  * @see docs/ARCHITECTURE.md#terminal-ttyd
  */
 async function scanDspTtydProcesses(): Promise<{
@@ -462,7 +492,9 @@ async function scanDspTtydProcesses(): Promise<{
     if (pid === process.pid || pid === process.ppid) continue;
     const argv = m[2].trim().split(/\s+/);
     if (path.basename(argv[0]) !== "ttyd") continue;
-    const hasCurrentRevision = m[2].includes(TTYD_RUNTIME_REVISION_MARKER);
+    const hasCurrentRevision =
+      m[2].includes(TTYD_RUNTIME_REVISION_MARKER) ||
+      m[2].includes(TTYD_RUNTIME_REVISION_RETAINED_KEY);
     if (
       !(argv.includes("tmux") && argv.includes("attach")) &&
       !hasCurrentRevision
