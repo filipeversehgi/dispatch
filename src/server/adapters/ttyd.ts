@@ -198,11 +198,7 @@ async function spawnTtyd(
       "0",
       "-b",
       `/sessions/${cardId}/terminal`,
-      ...(nativeTerminal
-        ? []
-        : indexPath != null
-          ? ["-I", indexPath]
-          : []),
+      ...(nativeTerminal ? [] : indexPath != null ? ["-I", indexPath] : []),
       "-t",
       "disableLeaveAlert=true",
       ...(nativeTerminal
