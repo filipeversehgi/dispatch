@@ -106,6 +106,21 @@ function injectFontFace(): void {
 }
 
 /**
+ * Un-zoomed font size in px, captured once by `createTerminal` from the resolved theme (or
+ * xterm's own default) so the zoom controller always multiplies from a stable base rather than
+ * compounding zoom-on-zoom across repeated commits.
+ */
+let baseFontSize = 15;
+
+/**
+ * Live zoom level, seeded from `readZoom()` at the top of `main()` before any pinch/chip handler
+ * attaches. Without this seed both the pinch gesture and the chip steppers would implicitly start
+ * from `1`, so the first interaction after a reload at a non-100% level would jump through 100%
+ * instead of moving from the restored level.
+ */
+let currentZoom = 1;
+
+/**
  * Builds the terminal instance and the reverse-tabnabbing-safe link handlers, wired to BOTH
  * `WebLinksAddon` (plain-text URLs) and `linkHandler` (OSC-8, the code path real Claude Code `⏺`
  * output uses and `WebLinksAddon` never fires for) so cmd-click parity holds for either link
@@ -118,22 +133,28 @@ function injectFontFace(): void {
  * reporting intercepts the wheel before `.xterm-viewport` ever scrolls, so the ~120ms animation
  * is only observable in the normal buffer. The mobile kinetic scroller zeroes this option for the
  * lifetime of a touch gesture and restores it on settle, so its animation cannot fight the
- * momentum loop's discrete ticks.
+ * momentum loop's discrete ticks. `zoom` is folded into `fontSize` here, before `term.open()`, so
+ * the first WS handshake already carries the zoomed column count — no wrong-size first paint, no
+ * redundant RESIZE, no reliance on microtask ordering against `ws.onopen`.
  * @see docs/ARCHITECTURE.md#terminal-ttyd
  */
-function createTerminal(theme: TerminalThemeResponse | null): {
+function createTerminal(
+  theme: TerminalThemeResponse | null,
+  zoom: number,
+): {
   term: Terminal;
   fit: FitAddon;
 } {
+  baseFontSize = theme?.fontSize ?? 15;
   const term = new Terminal({
     allowProposedApi: true,
     cursorBlink: theme?.cursorBlink ?? false,
     smoothScrollDuration: 120,
+    fontSize: baseFontSize * zoom,
     ...(theme
       ? {
           theme: theme.theme,
           fontFamily: `"${theme.fontFamily}", monospace`,
-          fontSize: theme.fontSize,
           fontWeight: theme.fontWeight,
           cursorStyle: theme.cursorStyle,
           ...(theme.letterSpacing !== undefined
@@ -515,16 +536,231 @@ function attachKineticScroll(term: Terminal): void {
   });
 }
 
+/**
+ * Tuning for the mobile zoom controller. The 9-step snap is what turns a continuous pinch into at
+ * most 8 distinct commits instead of ~60/s. `minFontPx` is a floor xterm does not impose itself —
+ * below ~6px, `Math.round(letterSpacing)` becomes a large fraction of the cell and the DOM
+ * renderer's width-cache rounding drifts visibly. `commitFloorMs` paces commits (each one clears
+ * the renderer's width cache and triggers a `term.resize()` -> RESIZE frame -> tmux SIGWINCH ->
+ * full-pane repaint, which saturates a tunnel at high commit rates); `chipHideMs` is the auto-hide
+ * delay after the last interaction.
+ */
+const ZOOM = {
+  steps: [0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4],
+  minFontPx: 6,
+  commitFloorMs: 120,
+  chipHideMs: 2000,
+} as const;
+
+/**
+ * Zoom is per-device, not per-session: one origin-scoped key serves every
+ * `/sessions/:id/terminal/` page, matching the established `dsp.*` convention (`dsp.view`,
+ * `dsp.panel.width`, `dsp.board.columnWidths`).
+ */
+const ZOOM_KEY = "dsp.terminal.zoom";
+
+/**
+ * Reads the persisted zoom level, snapped to the nearest `ZOOM.steps` entry and falling back to
+ * `1` on a missing/`NaN`/out-of-range value.
+ * @remarks Wrapped in `try/catch`: without `allow-same-origin` on the iframe, `localStorage`
+ * access throws `SecurityError` rather than returning `null`, which would take the whole terminal
+ * page down.
+ */
+function readZoom(): number {
+  try {
+    const raw = Number(localStorage.getItem(ZOOM_KEY));
+    if (!Number.isFinite(raw) || raw <= 0) return 1;
+    return ZOOM.steps.reduce((closest, step) =>
+      Math.abs(step - raw) < Math.abs(closest - raw) ? step : closest,
+    );
+  } catch {
+    return 1;
+  }
+}
+
+/**
+ * Persists the current zoom level. See `readZoom` for why the storage call is guarded.
+ */
+function writeZoom(z: number): void {
+  try {
+    localStorage.setItem(ZOOM_KEY, String(z));
+  } catch {}
+}
+
+const chip = document.querySelector<HTMLElement>(".dsp-zoom-chip");
+
+/**
+ * Writes the current zoom percentage into the chip's own label. Kept as a standalone function
+ * because it has two callers — `commitZoom` (which early-returns when the level is unchanged) and
+ * the coarse-pointer init path in `attachZoomControl` — and inlining it into `commitZoom` alone
+ * is the bug: the markup hardcodes "100%", so a reload at 80% would open the terminal correctly
+ * sized while the chip lied "100%" until the user next changed zoom.
+ */
+function renderChipLevel(z: number): void {
+  const label = chip?.querySelector(".dsp-zoom-chip__level");
+  if (label) label.textContent = `${Math.round(z * 100)}%`;
+}
+
+/**
+ * Attaches the coarse-pointer-only zoom controller: pinch-to-zoom (measured from raw touch-point
+ * distance so one code path covers iOS Safari and Chrome Android) plus the auto-hiding stepped
+ * chip, snapped to `ZOOM.steps`, rate-limited through `requestZoom`, and persisted under
+ * `ZOOM_KEY`.
+ * @remarks `preventDefault()` on the chip's `pointerdown` is what keeps the xterm textarea
+ * focused — it suppresses the compatibility `mousedown` and the focus change that follows it, so a
+ * chip tap can never blur the terminal or dismiss the mobile keyboard. The chip ALSO
+ * `preventDefault()`s its own `touchstart` as a belt-and-braces fallback for RESEARCH assumption
+ * A5 (MEDIUM confidence: whether `pointerdown` prevention reliably holds focus across iOS Safari
+ * and Chrome Android) — safe here specifically because the chip's action already fires on
+ * `pointerdown`, so unlike the terminal surface it needs no synthesized `click`. `term.focus()`
+ * must never be called after a step: on iOS it summons the keyboard even when it was already
+ * down. The `gesturestart`/`gesturechange`/`gestureend` listeners exist purely to suppress
+ * WebKit's native page zoom — their non-standard `scale` is never read, and Chrome Android never
+ * fires them at all. `requestZoom` commits at most once per animation frame and no sooner than
+ * `ZOOM.commitFloorMs` after the previous commit, but every call also (re)schedules a trailing
+ * commit of the latest requested value so the final step of a gesture always lands even when it
+ * was rate-limited away mid-gesture.
+ */
+function attachZoomControl(term: Terminal, fit: FitAddon): void {
+  let startDist = 0;
+  let startZoom = currentZoom;
+  let pendingRaw: number | null = null;
+  let frameQueued = false;
+  let trailingTimer: ReturnType<typeof setTimeout> | undefined;
+  let lastCommitAt = -Infinity;
+  let chipHideTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const showChip = (): void => {
+    if (!chip) return;
+    chip.setAttribute("data-visible", "true");
+    if (chipHideTimer !== undefined) clearTimeout(chipHideTimer);
+    chipHideTimer = setTimeout(() => {
+      chip.removeAttribute("data-visible");
+    }, ZOOM.chipHideMs);
+  };
+
+  const commitZoom = (raw: number): void => {
+    const step = ZOOM.steps.reduce((closest, s) =>
+      Math.abs(s - raw) < Math.abs(closest - raw) ? s : closest,
+    );
+    if (step === currentZoom) return;
+    term.options.fontSize = Math.max(ZOOM.minFontPx, baseFontSize * step);
+    fit.fit();
+    currentZoom = step;
+    writeZoom(step);
+    renderChipLevel(step);
+    showChip();
+  };
+
+  const flushPending = (): void => {
+    frameQueued = false;
+    if (trailingTimer !== undefined) {
+      clearTimeout(trailingTimer);
+      trailingTimer = undefined;
+    }
+    if (pendingRaw === null) return;
+    const raw = pendingRaw;
+    pendingRaw = null;
+    lastCommitAt = performance.now();
+    commitZoom(raw);
+  };
+
+  const requestZoom = (raw: number): void => {
+    pendingRaw = raw;
+    if (trailingTimer !== undefined) clearTimeout(trailingTimer);
+    trailingTimer = setTimeout(flushPending, ZOOM.commitFloorMs);
+    if (performance.now() - lastCommitAt < ZOOM.commitFloorMs) return;
+    if (frameQueued) return;
+    frameQueued = true;
+    requestAnimationFrame(flushPending);
+  };
+
+  document.addEventListener(
+    "touchstart",
+    (e) => {
+      if (!(e.target as Element)?.closest?.("#terminal, .xterm")) return;
+      showChip();
+      if (e.touches.length === 2) {
+        const [a, b] = [e.touches[0], e.touches[1]];
+        startDist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+        startZoom = currentZoom;
+      }
+    },
+    { capture: true, passive: true },
+  );
+
+  document.addEventListener(
+    "touchmove",
+    (e) => {
+      if (e.touches.length !== 2 || startDist === 0) return;
+      const [a, b] = [e.touches[0], e.touches[1]];
+      const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
+      e.preventDefault();
+      e.stopPropagation();
+      requestZoom(startZoom * (dist / startDist));
+    },
+    { capture: true, passive: false },
+  );
+
+  const onPinchEnd = (): void => {
+    startDist = 0;
+    flushPending();
+  };
+  document.addEventListener("touchend", onPinchEnd, {
+    capture: true,
+    passive: true,
+  });
+  document.addEventListener("touchcancel", onPinchEnd, {
+    capture: true,
+    passive: true,
+  });
+
+  for (const type of ["gesturestart", "gesturechange", "gestureend"]) {
+    document.addEventListener(type, (e) => e.preventDefault(), {
+      passive: false,
+    });
+  }
+
+  if (!chip) return;
+  chip.removeAttribute("hidden");
+  renderChipLevel(currentZoom);
+
+  chip.addEventListener("pointerdown", (e) => {
+    const dir = (e.target as HTMLElement)
+      .closest("[data-zoom]")
+      ?.getAttribute("data-zoom");
+    if (!dir) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const index = (ZOOM.steps as readonly number[]).indexOf(currentZoom);
+    const nextIndex = Math.min(
+      ZOOM.steps.length - 1,
+      Math.max(0, (index === -1 ? 4 : index) + (dir === "in" ? 1 : -1)),
+    );
+    requestZoom(ZOOM.steps[nextIndex]);
+    showChip();
+  });
+
+  const onChipTouchStart = (e: TouchEvent): void => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  chip.addEventListener("touchstart", onChipTouchStart, { passive: false });
+}
+
 async function main(): Promise<void> {
   const mount = document.getElementById("terminal");
   if (!mount) return;
   const theme = await fetchTheme();
   injectFontFace();
-  const { term, fit } = createTerminal(theme);
+  const zoom = readZoom();
+  currentZoom = zoom;
+  const { term, fit } = createTerminal(theme, zoom);
   await fontsReady();
   mountTerminal(term, mount, fit);
   if (window.matchMedia("(pointer: coarse)").matches) {
     attachKineticScroll(term);
+    attachZoomControl(term, fit);
   }
   connect(term);
 }
