@@ -287,6 +287,234 @@ function mountTerminal(
   }).observe(mount);
 }
 
+/**
+ * Tuning for the mobile kinetic scroller. `PX_PER_TICK` is derived rather than fixed because a
+ * tick is worth `altLinesPerTick`/`normalLinesPerTick` rows of content, and a row's height changes
+ * with the zoom level. `altLinesPerTick` is 5 to match tmux's default `copy-mode WheelUpPane ->
+ * send-keys -X -N 5 scroll-up` binding; `normalLinesPerTick` is 1 because xterm's own viewport
+ * consumes a `deltaMode: 1` tick as exactly one row. `maxTicksPerFrame` and `maxMomentumMs` cap the
+ * SGR-report / tmux-repaint throughput a flick can generate over a tunnel; `friction` and
+ * `minVelocity` shape the momentum decay; `slopPx` is what preserves tap-to-focus.
+ */
+const KINETIC = {
+  slopPx: 8,
+  friction: 0.95,
+  minVelocity: 0.02,
+  maxTicksPerFrame: 2,
+  velocityEma: 0.7,
+  altLinesPerTick: 5,
+  normalLinesPerTick: 1,
+  maxMomentumMs: 1200,
+} as const;
+
+/**
+ * Scroll mode for the current gesture. `"none"` means the alternate buffer is active but the
+ * application never enabled mouse reporting, so a dispatched wheel would be re-encoded by xterm as
+ * cursor keys and typed straight into Claude's prompt — engaging there is strictly worse than not
+ * scrolling at all.
+ * @see docs/ARCHITECTURE.md#terminal-ttyd
+ */
+function scrollMode(term: Terminal): "alt" | "normal" | "none" {
+  if (term.buffer.active.type !== "alternate") return "normal";
+  return term.modes.mouseTrackingMode === "none" ? "none" : "alt";
+}
+
+function rowHeightPx(term: Terminal): number {
+  const el = term.element;
+  return el && term.rows > 0 ? el.clientHeight / term.rows : 17;
+}
+
+/**
+ * Dispatches one discrete wheel tick. `deltaMode: 1` (`DOM_DELTA_LINE`) deliberately bypasses
+ * xterm's internal `_wheelPartialScroll` pixel accumulator so each dispatch produces exactly one
+ * mouse report (or exactly one viewport row) — the kinetic loop owns the sub-tick accumulation
+ * itself, never xterm.
+ */
+function emitTick(term: Terminal, dir: 1 | -1, x: number, y: number): void {
+  term.element?.dispatchEvent(
+    new WheelEvent("wheel", {
+      deltaY: dir,
+      deltaMode: 1,
+      bubbles: true,
+      cancelable: true,
+      clientX: x,
+      clientY: y,
+    }),
+  );
+}
+
+/**
+ * Attaches the coarse-pointer-only kinetic scroller. It never calls `term.scrollLines()` — a
+ * verified no-op in the alternate buffer, which is 100% of the real Claude/tmux workload — and
+ * instead dispatches synthetic wheel ticks via `emitTick`, gated off entirely by `scrollMode`
+ * whenever mouse reporting is disabled.
+ * @remarks Listens in the capture phase on `document`, not on `#terminal`/`.xterm-screen`, so
+ * `stopPropagation()` can pre-empt xterm's own touch listeners on `term.element` before they
+ * double-scroll in the normal-buffer case (the alternate-buffer case is already safe: xterm bails
+ * on `areMouseEventsActive`). `{ passive: false }` on `touchmove` is mandatory — iOS silently
+ * ignores `preventDefault()` on passive listeners. `touchstart` is never `preventDefault()`ed,
+ * which would suppress the synthesized `click`/`mousedown` and kill tap-to-focus; the `slopPx`
+ * threshold before engaging is what keeps a plain tap indistinguishable from a drag's first pixel.
+ * `smoothScrollDuration` is zeroed for the lifetime of a gesture and its momentum, then restored:
+ * on the normal-buffer path a live 120ms animation's `startTime`/target would otherwise be reset by
+ * the next tick 16ms later, so the viewport would permanently chase a moving target.
+ */
+function attachKineticScroll(term: Terminal): void {
+  let tracking = false;
+  let engaged = false;
+  let mode: "alt" | "normal" = "normal";
+  let accum = 0;
+  let velocity = 0;
+  let startY = 0;
+  let lastX = 0;
+  let lastY = 0;
+  let lastT = 0;
+  let momentumFrame: number | undefined;
+  let restoreScrollDuration = term.options.smoothScrollDuration;
+
+  const drain = (
+    tickMode: "alt" | "normal",
+    px: number,
+    x: number,
+    y: number,
+  ): void => {
+    accum += px;
+    const perTick =
+      rowHeightPx(term) *
+      (tickMode === "alt"
+        ? KINETIC.altLinesPerTick
+        : KINETIC.normalLinesPerTick);
+    let emitted = 0;
+    while (Math.abs(accum) >= perTick && emitted < KINETIC.maxTicksPerFrame) {
+      const dir = accum > 0 ? 1 : -1;
+      emitTick(term, dir, x, y);
+      accum -= dir * perTick;
+      emitted += 1;
+    }
+    if (emitted === KINETIC.maxTicksPerFrame) accum = 0;
+  };
+
+  const engageGesture = (): void => {
+    if (engaged) return;
+    engaged = true;
+    restoreScrollDuration = term.options.smoothScrollDuration;
+    term.options.smoothScrollDuration = 0;
+  };
+
+  const settleGesture = (): void => {
+    if (!engaged) return;
+    engaged = false;
+    term.options.smoothScrollDuration = restoreScrollDuration;
+  };
+
+  const cancelMomentum = (): void => {
+    if (momentumFrame !== undefined) {
+      cancelAnimationFrame(momentumFrame);
+      momentumFrame = undefined;
+    }
+    settleGesture();
+  };
+
+  const runMomentum = (startTime: number): void => {
+    let lastFrameT = startTime;
+    const step = (now: number): void => {
+      const frameMode = scrollMode(term);
+      if (frameMode === "none" || now - startTime > KINETIC.maxMomentumMs) {
+        momentumFrame = undefined;
+        settleGesture();
+        return;
+      }
+      const frameMs = now - lastFrameT;
+      lastFrameT = now;
+      drain(frameMode, velocity * frameMs, lastX, lastY);
+      velocity *= KINETIC.friction;
+      if (Math.abs(velocity) < KINETIC.minVelocity) {
+        momentumFrame = undefined;
+        settleGesture();
+        return;
+      }
+      momentumFrame = requestAnimationFrame(step);
+    };
+    momentumFrame = requestAnimationFrame(step);
+  };
+
+  document.addEventListener(
+    "touchstart",
+    (e) => {
+      if ((e.target as Element)?.closest?.(".dsp-zoom-chip")) return;
+      cancelMomentum();
+      if (e.touches.length !== 1) {
+        tracking = false;
+        engaged = false;
+        accum = 0;
+        velocity = 0;
+        return;
+      }
+      if (!(e.target as Element)?.closest?.("#terminal, .xterm")) {
+        tracking = false;
+        return;
+      }
+      const sm = scrollMode(term);
+      if (sm === "none") {
+        tracking = false;
+        return;
+      }
+      mode = sm;
+      tracking = true;
+      engaged = false;
+      accum = 0;
+      velocity = 0;
+      startY = e.touches[0].clientY;
+      lastX = e.touches[0].clientX;
+      lastY = e.touches[0].clientY;
+      lastT = e.timeStamp;
+      e.stopPropagation();
+    },
+    { capture: true, passive: true },
+  );
+
+  document.addEventListener(
+    "touchmove",
+    (e) => {
+      if (!tracking || e.touches.length !== 1) return;
+      const t = e.touches[0];
+      if (!engaged) {
+        if (Math.abs(t.clientY - startY) < KINETIC.slopPx) return;
+        engageGesture();
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      const dy = lastY - t.clientY;
+      const dt = Math.max(1, e.timeStamp - lastT);
+      velocity =
+        KINETIC.velocityEma * (dy / dt) + (1 - KINETIC.velocityEma) * velocity;
+      lastX = t.clientX;
+      lastY = t.clientY;
+      lastT = e.timeStamp;
+      drain(mode, dy, t.clientX, t.clientY);
+    },
+    { capture: true, passive: false },
+  );
+
+  const onTouchEnd = (): void => {
+    tracking = false;
+    if (engaged && Math.abs(velocity) > KINETIC.minVelocity) {
+      runMomentum(performance.now());
+    } else {
+      settleGesture();
+    }
+  };
+
+  document.addEventListener("touchend", onTouchEnd, {
+    capture: true,
+    passive: true,
+  });
+  document.addEventListener("touchcancel", onTouchEnd, {
+    capture: true,
+    passive: true,
+  });
+}
+
 async function main(): Promise<void> {
   const mount = document.getElementById("terminal");
   if (!mount) return;
@@ -295,6 +523,9 @@ async function main(): Promise<void> {
   const { term, fit } = createTerminal(theme);
   await fontsReady();
   mountTerminal(term, mount, fit);
+  if (window.matchMedia("(pointer: coarse)").matches) {
+    attachKineticScroll(term);
+  }
   connect(term);
 }
 
