@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 import { store } from "../store/board.store.js";
 
 const execFileP = promisify(execFile);
-const TTYD_RUNTIME_REVISION = 4;
+const TTYD_RUNTIME_REVISION = 5;
 const TTYD_RUNTIME_REVISION_KEY = "DISPATCH_TTYD_REVISION";
 
 /**
@@ -146,6 +146,14 @@ export function getLiveTtydPort(session: string): number | null {
  * two `-t` tokens: no `-I` served index, no `-t theme|fontFamily|fontSize` (dispatch's own
  * built-bundle client now owns the look entirely), and the retained key is the sole re-adoption
  * fingerprint left once the theme JSON marker is gone.
+ * @remarks `tmux -u` states the client's UTF-8 mode explicitly instead of letting tmux derive it
+ * from `LANG`/`LC_ALL`/`LC_CTYPE`. This client inherits the backend's environment, and a
+ * launchd-started dispatch gets a minimal one with no locale set at all — a non-UTF-8 tmux client
+ * substitutes `_` for every non-ASCII cell as it writes to the pty, so `⏺`, em dashes and box
+ * drawing arrive at the browser already destroyed, with a correct pane behind them (`capture-pane`
+ * stays clean, which is why no pane-content probe can see this). `-u` is preferred over injecting a
+ * synthetic `LANG` into the spawn env because it scopes the assertion to the attaching client and
+ * leaves the environment the `claude` process itself sees untouched.
  * @see docs/ARCHITECTURE.md#terminal-ttyd
  */
 async function spawnTtyd(session: string, cardId: string): Promise<number> {
@@ -164,6 +172,7 @@ async function spawnTtyd(session: string, cardId: string): Promise<number> {
       "-t",
       `${TTYD_RUNTIME_REVISION_RETAINED_KEY}=1`,
       "tmux",
+      "-u",
       "attach",
       "-t",
       `=${session}`,

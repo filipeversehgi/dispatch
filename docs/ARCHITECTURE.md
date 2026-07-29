@@ -425,7 +425,7 @@ manager (`adapters/ttyd.ts`) spawns, tracks, and reuses a writable, loopback-onl
 an existing `dsp-<identifier>` tmux session so the live `claude` REPL can be embedded in the
 detail-panel iframe (`TERM-01`). Its invocation is ONE fixed, unconditional shape — no environment
 variable selects an alternate form: `ttyd -W -i 127.0.0.1 -p 0 -b /sessions/<cardId>/terminal -t
-disableLeaveAlert=true -t DISPATCH_TTYD_REVISION_<revision>=1 tmux attach -t =<session>`. The two
+disableLeaveAlert=true -t DISPATCH_TTYD_REVISION_<revision>=1 tmux -u attach -t =<session>`. The two
 `-t` tokens are `disableLeaveAlert` and the inert retained-key revision token — there is no
 `-I <index>`, no `-t theme=`/`fontFamily`/`fontSize`: look, font, and every interaction pattern are
 entirely client-owned (below), and the retained-key token is now the SOLE re-adoption fingerprint
@@ -433,6 +433,17 @@ entirely client-owned (below), and the retained-key token is now the SOLE re-ado
 an older, pre-retirement dispatch build no longer matches `compatible` and is swept rather than
 adopted on the first restart after this ships, a deliberate one-time degradation, never a
 regression).
+
+**`tmux -u` is load-bearing, not decorative (`TERM-04`).** The attaching tmux client inherits the
+backend's environment, and tmux otherwise derives its UTF-8 mode from `LANG`/`LC_ALL`/`LC_CTYPE`. A
+launchd-started dispatch service is handed a minimal environment with no locale at all, and a
+non-UTF-8 tmux client substitutes `_` for every non-ASCII cell **as it writes to the pty** — so
+`⏺`, em dashes, arrows, and box drawing reach ttyd, the WebSocket, xterm.js, and the bundled font
+already destroyed. The pane behind them stays correct, which is why `capture-pane` and every
+pane-content probe report clean while the terminal renders garbage; the bundled font's cmap is
+never involved. `-u` states the client's UTF-8 mode outright. It is preferred over injecting a
+synthetic `LANG` into the spawn environment because it scopes the assertion to the attaching client
+and leaves the environment the `claude` process itself sees untouched.
 
 **Every GET on `/sessions/:id/terminal/*` is answered by dispatch's own built bundle.**
 `terminalProxyRouter` (`routes/terminal-proxy.route.ts`) resolves the card's live ttyd port and
@@ -1277,7 +1288,8 @@ is a behavior change, not a refactor.
    `=` targeting; `load-buffer -b`/`paste-buffer -b -p -d`; separate `send-keys Enter`. Geometry `200×50`
    is load-bearing for readiness/marker parsing.
 6. **ttyd invocation + tracking.** `ttyd -W -i 127.0.0.1 -p 0 -b /sessions/<cardId>/terminal -t
-disableLeaveAlert=true -t DISPATCH_TTYD_REVISION_<revision>=1 tmux attach -t =<session>`; port
+disableLeaveAlert=true -t DISPATCH_TTYD_REVISION_<revision>=1 tmux -u attach -t =<session>` (`-u` is
+   mandatory — see `TERM-04`); port
    parsed from stderr `Listening on port: N`; loopback bind mandatory; orphan-sweep ownership proof
    (`basename(argv0)==="ttyd"` AND argv includes `tmux`+`attach`, OR the process title contains the
    exact retained-key revision literal); exact-current retained-key revision marker required for
