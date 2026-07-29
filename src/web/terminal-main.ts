@@ -318,14 +318,16 @@ function mountTerminal(
  * `drain`'s `perTick` local. `reportLinesPerTick` is 1 because the real workload's mouse report is
  * consumed by Claude Code, not by tmux copy-mode, and Claude Code scrolls exactly one line per
  * report (measured); `viewportLinesPerTick` is 1 because xterm's own viewport consumes a
- * `deltaMode: 1` tick as exactly one row. `maxTicksPerDrain` caps the
- * SGR-report / tmux-repaint throughput a single `drain()` call can generate — `drain()` runs once
- * per `touchmove`, not once per animation frame, so this bounds throughput per event rather than
- * per frame; `friction` and `minVelocity` shape the momentum decay; `slopPx` is what preserves
- * tap-to-focus. `releaseWindowMs` is how stale the last `touchmove` may be for the release to still
- * count as a flick — beyond it the finger was resting, and the last motion's velocity must not
- * fling. `fallbackRowPx` is only reachable from `rowHeightPx` before `term.open()` has mounted the
- * element.
+ * `deltaMode: 1` tick as exactly one row. `maxTicksPerDrain` caps the SGR-report / tmux-repaint
+ * throughput a single `drain()` call can generate; both the drag phase and the momentum loop now
+ * drain from a pending animation frame (never per `touchmove`), so this bounds throughput per frame.
+ * At `reportLinesPerTick: 1` a frame's worth of a fast flick is only a few rows, so `8` is headroom
+ * above the common case, and a call that hits the cap now carries its remainder into the next call
+ * rather than discarding it. `friction` and `minVelocity` shape the momentum decay; `slopPx` is what
+ * preserves tap-to-focus. `releaseWindowMs` is how stale the last `touchmove` may be for the release
+ * to still count as a flick — beyond it the finger was resting, and the last motion's velocity must
+ * not fling. `fallbackRowPx` is only reachable from `rowHeightPx` before `term.open()` has mounted
+ * the element.
  */
 const KINETIC = {
   slopPx: 8,
@@ -424,6 +426,14 @@ function emitTick(term: Terminal, dir: 1 | -1, x: number, y: number): void {
  * @remarks Velocity is only recomputed on `touchmove`, so a drag that ends with the finger held
  * still would otherwise release the last motion's stale velocity as a phantom flick; a release more
  * than `releaseWindowMs` after the last move is treated as a deliberate stop.
+ * @remarks The drag phase is paced on `requestAnimationFrame`, mirroring the momentum loop:
+ * `touchmove` only accumulates `pendingDy` and schedules a single pending `dragFrame`, so a
+ * multi-`touchmove` burst inside one frame coalesces into one `drain` call instead of one per event.
+ * `touchend`/`touchcancel` cancel that frame and call `flushDrag` synchronously, before the
+ * momentum-vs-settle decision — otherwise a short drag's tail travel, still sitting in `pendingDy`,
+ * would be lost the moment the pending frame is cancelled. `touchstart` cancels the frame and zeros
+ * `pendingDy` ahead of every bail path, including the ones that decline to track, so a declined touch
+ * can never drain a previous gesture's queued travel.
  * @remarks TERM-03: `#terminal, #terminal .xterm { touch-action: none }` (declared in
  * `terminal.html`) is deliberate and must NOT be relaxed to `pan-y` — this module dispatches the
  * wheel events itself via `emitTick`, so granting the browser vertical panning double-scrolls, and
@@ -445,6 +455,8 @@ function attachKineticScroll(term: Terminal): void {
   let lastY = 0;
   let lastT = 0;
   let momentumFrame: number | undefined;
+  let pendingDy = 0;
+  let dragFrame: number | undefined;
   let restoreScrollDuration = term.options.smoothScrollDuration;
 
   const drain = (
@@ -517,10 +529,29 @@ function attachKineticScroll(term: Terminal): void {
     momentumFrame = requestAnimationFrame(step);
   };
 
+  const cancelDragFrame = (): void => {
+    if (dragFrame !== undefined) {
+      cancelAnimationFrame(dragFrame);
+      dragFrame = undefined;
+    }
+  };
+
+  const flushDrag = (): void => {
+    dragFrame = undefined;
+    if (pendingDy === 0) return;
+    const dy = pendingDy;
+    pendingDy = 0;
+    const mode = scrollMode(term);
+    if (mode === "none") return;
+    drain(mode, dy, lastX, lastY);
+  };
+
   document.addEventListener(
     "touchstart",
     (e) => {
       cancelMomentum();
+      cancelDragFrame();
+      pendingDy = 0;
       if ((e.target as Element)?.closest?.(".dsp-zoom-chip")) {
         tracking = false;
         return;
@@ -561,6 +592,8 @@ function attachKineticScroll(term: Terminal): void {
       if (mode === "none") {
         tracking = false;
         settleGesture();
+        cancelDragFrame();
+        pendingDy = 0;
         return;
       }
       const t = e.touches[0];
@@ -577,7 +610,10 @@ function attachKineticScroll(term: Terminal): void {
       lastX = t.clientX;
       lastY = t.clientY;
       lastT = e.timeStamp;
-      drain(mode, dy, t.clientX, t.clientY);
+      pendingDy += dy;
+      if (dragFrame === undefined) {
+        dragFrame = requestAnimationFrame(flushDrag);
+      }
     },
     { capture: true, passive: false },
   );
@@ -585,6 +621,8 @@ function attachKineticScroll(term: Terminal): void {
   const onTouchEnd = (e: TouchEvent): void => {
     if (!tracking) return;
     tracking = false;
+    cancelDragFrame();
+    flushDrag();
     if (e.timeStamp - lastT > KINETIC.releaseWindowMs) velocity = 0;
     if (engaged && Math.abs(velocity) > KINETIC.minVelocity) {
       runMomentum();
