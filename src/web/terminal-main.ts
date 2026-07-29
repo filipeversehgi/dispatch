@@ -150,7 +150,7 @@ function createTerminal(
     allowProposedApi: true,
     cursorBlink: theme?.cursorBlink ?? false,
     smoothScrollDuration: 120,
-    fontSize: baseFontSize * zoom,
+    fontSize: Math.max(ZOOM.minFontPx, baseFontSize * zoom),
     ...(theme
       ? {
           theme: theme.theme,
@@ -316,6 +316,8 @@ function mountTerminal(
  * consumes a `deltaMode: 1` tick as exactly one row. `maxTicksPerFrame` and `maxMomentumMs` cap the
  * SGR-report / tmux-repaint throughput a flick can generate over a tunnel; `friction` and
  * `minVelocity` shape the momentum decay; `slopPx` is what preserves tap-to-focus.
+ * `releaseWindowMs` is how stale the last `touchmove` may be for the release to still count as a
+ * flick — beyond it the finger was resting, and the last motion's velocity must not fling.
  */
 const KINETIC = {
   slopPx: 8,
@@ -326,18 +328,25 @@ const KINETIC = {
   altLinesPerTick: 5,
   normalLinesPerTick: 1,
   maxMomentumMs: 1200,
+  releaseWindowMs: 100,
 } as const;
 
 /**
- * Scroll mode for the current gesture. `"none"` means the alternate buffer is active but the
- * application never enabled mouse reporting, so a dispatched wheel would be re-encoded by xterm as
+ * Scroll mode for the current gesture. `"none"` means the alternate buffer is active but no
+ * wheel-carrying mouse protocol is enabled, so a dispatched wheel would be re-encoded by xterm as
  * cursor keys and typed straight into Claude's prompt — engaging there is strictly worse than not
  * scrolling at all.
+ * @remarks `"x10"` is excluded alongside `"none"` because the X10 protocol's event mask is
+ * `DOWN` only (`CoreMouseService`'s X10 entry additionally rejects the wheel button outright), so
+ * xterm never installs its wheel listener and the always-on handler's `if (requestedEvents.wheel)`
+ * short-circuit does not fire — a dispatched tick reaches the cursor-key fallback and is typed into
+ * the prompt, which is exactly the failure this gate exists to prevent.
  * @see docs/ARCHITECTURE.md#terminal-ttyd
  */
 function scrollMode(term: Terminal): "alt" | "normal" | "none" {
   if (term.buffer.active.type !== "alternate") return "normal";
-  return term.modes.mouseTrackingMode === "none" ? "none" : "alt";
+  const tracking = term.modes.mouseTrackingMode;
+  return tracking === "none" || tracking === "x10" ? "none" : "alt";
 }
 
 function rowHeightPx(term: Terminal): number {
@@ -379,6 +388,16 @@ function emitTick(term: Terminal, dir: 1 | -1, x: number, y: number): void {
  * `smoothScrollDuration` is zeroed for the lifetime of a gesture and its momentum, then restored:
  * on the normal-buffer path a live 120ms animation's `startTime`/target would otherwise be reset by
  * the next tick 16ms later, so the viewport would permanently chase a moving target.
+ * @remarks The touch-end path only acts when the gesture was actually tracked. It fires for EVERY
+ * touchend on the document, including a zoom-chip tap that `touchstart` declined to track, and
+ * without that guard a tap landing mid-decay would re-enter the momentum loop and overwrite the
+ * stored frame handle, orphaning the first loop beyond any `cancelAnimationFrame` — two loops would
+ * then drain concurrently and emit double the capped ticks. For the same reason `touchstart`
+ * cancels in-flight momentum BEFORE it bails on a chip target, so gesture state can never diverge
+ * from the running loop.
+ * @remarks Velocity is only recomputed on `touchmove`, so a drag that ends with the finger held
+ * still would otherwise release the last motion's stale velocity as a phantom flick; a release more
+ * than `releaseWindowMs` after the last move is treated as a deliberate stop.
  */
 function attachKineticScroll(term: Terminal): void {
   let tracking = false;
@@ -462,8 +481,11 @@ function attachKineticScroll(term: Terminal): void {
   document.addEventListener(
     "touchstart",
     (e) => {
-      if ((e.target as Element)?.closest?.(".dsp-zoom-chip")) return;
       cancelMomentum();
+      if ((e.target as Element)?.closest?.(".dsp-zoom-chip")) {
+        tracking = false;
+        return;
+      }
       if (e.touches.length !== 1) {
         tracking = false;
         engaged = false;
@@ -517,8 +539,10 @@ function attachKineticScroll(term: Terminal): void {
     { capture: true, passive: false },
   );
 
-  const onTouchEnd = (): void => {
+  const onTouchEnd = (e: TouchEvent): void => {
+    if (!tracking) return;
     tracking = false;
+    if (e.timeStamp - lastT > KINETIC.releaseWindowMs) velocity = 0;
     if (engaged && Math.abs(velocity) > KINETIC.minVelocity) {
       runMomentum(performance.now());
     } else {
