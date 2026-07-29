@@ -184,7 +184,11 @@ function mapCursorStyle(
  * @remarks Reads `ghostty +show-config` (256 flat palette lines; only indices 0..15 map to the
  * `ITheme` named colors) through the {@link run} exec chokepoint with a fixed, request-independent
  * argv — no user input ever reaches the spawned command.
+ * @remarks TERM-03: this resolver's never-throws contract is part of the native client's
+ * load-bearing theme guarantee — the terminal must always open themed (live Ghostty config or the
+ * Catppuccin Mocha fallback), never in raw xterm defaults because a resolution path threw.
  * @see docs/ARCHITECTURE.md#exec-chokepoint
+ * @see docs/ARCHITECTURE.md#terminal-ttyd
  */
 export async function resolveTerminalTheme(): Promise<TerminalThemeResponse> {
   if (cached) return cached;

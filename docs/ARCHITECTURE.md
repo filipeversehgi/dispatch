@@ -420,30 +420,77 @@ mutation performs no promotion and is therefore safe in every column.
 
 ### Terminal ttyd
 
-The per-session ttyd manager (`adapters/ttyd.ts`) spawns, tracks, and reuses a writable,
-loopback-only web terminal attached to an existing `dsp-<identifier>` tmux session, so the live
-`claude` REPL can be embedded in the detail-panel iframe (`TERM-01`). Its invocation is fixed and
-load-bearing: `ttyd -W -i 127.0.0.1 -p 0 -b /sessions/<cardId>/terminal -t
-disableLeaveAlert=true -t DISPATCH_TTYD_REVISION_<revision>=1 tmux attach -t =<session>`. The
-bundled font's Unicode cmaps must map Claude Code's U+23FA and U+23F5 symbols to its existing
-U+25CF circle and U+25B6 triangle glyphs in every Unicode subtable; system fallback is not a
-substitute because xterm requires deterministic same-cell monospace metrics across browser and
-host configurations.
+**ttyd is a headless PTY backend only; dispatch never serves its index.** The per-session ttyd
+manager (`adapters/ttyd.ts`) spawns, tracks, and reuses a writable, loopback-only ttyd attached to
+an existing `dsp-<identifier>` tmux session so the live `claude` REPL can be embedded in the
+detail-panel iframe (`TERM-01`). Its invocation is ONE fixed, unconditional shape — no environment
+variable selects an alternate form: `ttyd -W -i 127.0.0.1 -p 0 -b /sessions/<cardId>/terminal -t
+disableLeaveAlert=true -t DISPATCH_TTYD_REVISION_<revision>=1 tmux attach -t =<session>`. The two
+`-t` tokens are `disableLeaveAlert` and the inert retained-key revision token — there is no
+`-I <index>`, no `-t theme=`/`fontFamily`/`fontSize`: look, font, and every interaction pattern are
+entirely client-owned (below), and the retained-key token is now the SOLE re-adoption fingerprint
+(the old flag-OFF JSON theme marker this token used to coexist with is retired — a ttyd spawned by
+an older, pre-retirement dispatch build no longer matches `compatible` and is swept rather than
+adopted on the first restart after this ships, a deliberate one-time degradation, never a
+regression).
 
-**Adoption is runtime-revision gated.** ttyd rewrites its process title but retains its theme JSON
-and the direct tmux command, so an inert `"DISPATCH_TTYD_REVISION":<revision>` metadata property in
-that JSON keeps both the exact compatibility marker and existing ownership fingerprint visible in
-`ps`; xterm ignores the unknown theme color key, so the attached shell and terminal behavior do not
-change. The legacy ownership fingerprint remains exactly `basename(argv0) === "ttyd"` plus `tmux`
-and `attach`. macOS ttyd's rewritten process title has a fixed buffer, and the full production theme
-can truncate the trailing command; for revised processes, `basename(argv0) === "ttyd"` plus the exact
-Dispatch-only revision literal is the stronger ownership proof. Every legacy fingerprint match and
-every exact-marker match is still an orphan-sweep candidate, but only a PID carrying the exact
-current revision marker may be adopted and spared. Legacy or otherwise incompatible ttyd processes are declined, their
-persisted ports clear through reconcile, and the sweep terminates them; the tmux session survives
-for a fresh ttyd. Bump the revision whenever an upgrade changes the embedded index, font contract,
-client preferences, or other in-memory ttyd behavior that cannot be repaired in an already-running
-process. A failed `ps` or `lsof` scan remains fail-closed for adoption and never crashes boot.
+**Every GET on `/sessions/:id/terminal/*` is answered by dispatch's own built bundle.**
+`terminalProxyRouter` (`routes/terminal-proxy.route.ts`) resolves the card's live ttyd port and
+404s on an unknown card FIRST, exactly as before; a GET past that check is served from
+`WEB_DIST_DIR` via `res.sendFile(relPath, { root: WEB_DIST_DIR })` (the `{ root }` form confines
+send's dotfile/`..` traversal policy to the relative segment). Non-GET requests still forward to
+ttyd via `httpForward` — unchanged, so nothing about the route's non-GET behavior is disturbed by
+retiring the served-index patch system. Only the WebSocket upgrade ever reaches ttyd, through the
+unchanged `terminalProxyUpgrade`/`upgradeForward` path: `server.on("upgrade")` intercepts it before
+Express ever sees it, headers/rawHeaders and the buffered `head` chunk forward verbatim, `agent:
+false` on the HTTP leg, and the `writableFinished` premature-disconnect guard all stay exactly as
+they were.
+
+**The client owns theme, font, links, and scroll — none of it is a string patch anymore.**
+`GET /api/terminal-theme` (`services/infra/terminal-theme.ts`) resolves the user's real Ghostty
+config live (`ghostty +show-config`, parsed into an xterm `ITheme` plus font block) and falls back
+to a bundled Catppuccin Mocha constant on any failure — the resolver never throws, so the terminal
+always opens themed rather than in raw xterm defaults. The bundled Nerd Font is self-hosted from a
+base64 data-URI `@font-face` with `font-feature-settings: "ss01" 1, "calt" 1, "liga" 1` on `.xterm`
+under the DOM renderer (no WebGL addon needed — the DOM renderer shapes font features natively).
+Cmd-click (plain-text via `WebLinksAddon` AND OSC-8 via `linkHandler`, both sharing one
+reverse-tabnabbing-safe `activateLink`) and Shift+Enter newline insertion (raw LF on `keydown`,
+both `keydown`/`keypress` swallowed for the same keystroke, IME-composition-safe) are first-class
+client functions in `web/terminal-main.ts`, not anchor-matched string patches into ttyd's own
+bundle. Mobile gets a kinetic (momentum) scroller and a persisted pinch/stepped zoom control that
+raises the effective column count — see `TERM-03` below for the contract that makes both safe.
+
+**`TERM-03`: the native client's load-bearing scroll/theme contract.** `term.scrollLines()` is a
+verified no-op in the alternate buffer (100% of the real Claude/tmux workload), so the kinetic
+scroller never calls it — it dispatches synthetic `WheelEvent`s with `deltaMode: 1` at
+`term.element` instead, one tick per mouse report. The wheel path is gated on
+`mouseTrackingMode` being neither `"none"` NOR `"x10"`: X10's event mask is `DOWN`-only, so an
+engaged wheel there would be re-encoded by xterm as `ESC[A`/`ESC[B` and typed straight into the
+live `claude` prompt — engaging in that state is strictly worse than not scrolling. One synthetic
+tick equals one mouse report, and tmux's default binding sends 5 lines per report
+(`WheelUpPane -> send-keys -X -N 5`), which is why the kinetic accumulator scales by
+`rowHeight * 5` rather than emitting per pixel — a raw pixel-for-pixel dispatch would over-scroll
+roughly 5x. `#terminal, #terminal .xterm { touch-action: none }` — NOT `pan-y` — is deliberate: the
+client dispatches the wheel events itself, so granting the browser vertical panning double-scrolls,
+and `none` additionally removes Chrome's "scroll already started, preventDefault ignored" race.
+`html, body { -webkit-text-size-adjust: 100% }` is load-bearing for the same reason: without it,
+iOS text inflation breaks the `charWidth ∝ fontSize` relationship the zoom / effective-column-width
+feature's math depends on. The theme resolver's never-throws contract (above) is part of the same
+invariant — a themed terminal must open even when Ghostty is absent or its config fails to parse.
+
+**Adoption is runtime-revision gated on the retained key alone.** ttyd rewrites its process title
+but retains the direct tmux command, so an inert `DISPATCH_TTYD_REVISION_<revision>` argv token
+keeps both the exact compatibility marker and existing ownership fingerprint visible in `ps`. The
+legacy ownership fingerprint remains exactly `basename(argv0) === "ttyd"` plus `tmux` and `attach`.
+macOS ttyd's rewritten process title has a fixed buffer that can truncate the trailing command; for
+revised processes, `basename(argv0) === "ttyd"` plus the exact Dispatch-only revision literal is the
+stronger ownership proof. Every legacy fingerprint match and every exact-marker match is still an
+orphan-sweep candidate, but only a PID carrying the exact current retained-key revision marker may
+be adopted and spared. Legacy or otherwise incompatible ttyd processes are declined, their persisted
+ports clear through reconcile, and the sweep terminates them; the tmux session survives for a fresh
+ttyd. Bump the revision whenever an upgrade changes the argv shape, font contract, client
+preferences, or other in-memory ttyd behavior that cannot be repaired in an already-running process.
+A failed `ps` or `lsof` scan remains fail-closed for adoption and never crashes boot.
 
 **Writable + loopback are BOTH mandatory.** `-W` (writable) AND `-i 127.0.0.1` (loopback-only bind)
 are each required and neither may be dropped: a missing `-W` yields a dead read-only terminal, and
@@ -461,42 +508,19 @@ reporting readiness (the port line appears slightly before the socket accepts, a
 cannot probe the cross-origin ttyd port itself). Both waits carry a tolerant 10s cap (cold
 first-spawn-per-boot measured ~5s).
 
-**Patched served index — named independent patches.** Boot provisioning (`provisionTtydIndex`,
-`bootstrap/ttyd-index-setup.ts`, fire-and-forget after reconcileSessions) captures ttyd's stock
-served index and applies a list of named independent patches, in order: `font-load-gate` (defers
-`terminal.open()` behind a `Promise.race` of `document.fonts.load()` and a 1500ms timeout, so
-glyph width/metrics measure against the bundled Nerd Font instead of a browser fallback — fixes
-Nerd Font PUA icon tofu; `TERM-01`), `cmd-click-weblinks` (modifier-gates `WebLinksAddon`'s
-plain-text URL click handler), `cmd-click-osc8` (sets `terminal.options.linkHandler` so OSC-8
-hyperlinks from real Claude Code `⏺` output are Cmd/Ctrl-gated instead of xterm's stock ungated
-confirm-and-open), `shift-enter` (`attachCustomKeyEventHandler` sends raw LF via the Dispatcher's
-own `sendData` so Claude Code inserts a newline instead of submitting; keydown-only,
-IME-composition-safe, exact Shift+Enter with no Ctrl/Alt/Meta), and `font-face-inject` (injects a
-base64-inlined `@font-face` for the bundled Nerd Font woff2 at the served index's sole `</style>`
-anchor; `TERM-01`). `font-load-gate` must stay FIRST and `font-face-inject` LAST — the load-gate's
-target string is a superset of the two link/newline patches' own anchors, so it re-emits both
-verbatim inside its wrapping `.then()` to keep their exact-count-1 matches intact downstream. Each
-patch is anchored to an exact-count-1 literal in the captured bundle; a drifted anchor skips ONLY
-that patch with a boot warning naming the disabled feature — the other patches still apply. The
-artifact is written whenever at least one patch applied, so "artifact exists" (spawnTtyd's
-conditional `-I` below) now means "at least one patch applied this boot", and artifact-absent means
-every patch failed and the terminal serves fully stock ttyd/xterm.js behavior. Both link patches
-keep the reverse-tabnabbing guard (`window.open()` then `opener=null` before navigating) from the
-[Security Threat Model](#security-threat-model) — `@see` that table for the STRIDE home — and
-nothing about this patch pipeline changes the loopback-only bind above.
-
-**tmux must be granted the `hyperlinks` terminal-feature, or `cmd-click-osc8` has nothing to
-resolve.** `cmd-click-osc8` patches the BROWSER side of link activation, but the OSC 8 bytes
-themselves have to reach the browser first — and tmux's own default `terminal-features[0]` entry
-for `xterm*` (`clipboard:ccolour:cstyle:focus:title`) omits `hyperlinks`. Without it, tmux's grid
-tracks a real Claude Code `⏺` output's OSC 8 hyperlink internally (`capture-pane -e` proves the
-escape exists server-side) but never forwards it to an attached client's byte stream — xterm.js's
-`OscLinkProvider` then has zero cells with the extended `urlId` attribute to resolve, no matter how
-correct the browser-side patch is (live-discovered defect, 59-02-SUMMARY.md). `ensureHyperlinksTerminalFeature`
-(`adapters/tmux.ts`) grants `xterm-256color:hyperlinks` — the exact TERM string ttyd's spawn argv
-above declares — idempotently (`tmux show -g terminal-features` checked before `set -ag`, since it
-is a tmux SERVER-global option that would otherwise duplicate on every backend restart across the
-tmux server's much longer lifetime) and never throws. It runs at boot AND after every successful
+**tmux must be granted the `hyperlinks` terminal-feature, or the client's `linkHandler` has nothing
+to resolve.** OSC-8 link activation is now the client's own `linkHandler` (`web/terminal-main.ts`),
+but the OSC 8 bytes themselves have to reach the browser first — and tmux's own default
+`terminal-features[0]` entry for `xterm*` (`clipboard:ccolour:cstyle:focus:title`) omits
+`hyperlinks`. Without it, tmux's grid tracks a real Claude Code `⏺` output's OSC 8 hyperlink
+internally (`capture-pane -e` proves the escape exists server-side) but never forwards it to an
+attached client's byte stream — xterm.js's `OscLinkProvider` then has zero cells with the extended
+`urlId` attribute to resolve, no matter how correct the client's own link handling is
+(live-discovered defect, 59-02-SUMMARY.md). `ensureHyperlinksTerminalFeature` (`adapters/tmux.ts`)
+grants `xterm-256color:hyperlinks` — the exact TERM string ttyd's spawn argv above declares —
+idempotently (`tmux show -g terminal-features` checked before `set -ag`, since it is a tmux
+SERVER-global option that would otherwise duplicate on every backend restart across the tmux
+server's much longer lifetime) and never throws. It runs at boot AND after every successful
 `newSession`: tmux does not auto-start a server for `show`/`set`, so with no server alive (the
 normal post-reboot state) the boot-time call fails outright, and tmux's default `exit-empty on`
 kills a sessionless server — server options do not persist — so a mid-run server restart loses
@@ -1252,14 +1276,13 @@ is a behavior change, not a refactor.
    `new-session -d -s <name> -c <cwd> -x 200 -y 50 <argv>`; `capture-pane -p -J -t =<name>:`; exact-name
    `=` targeting; `load-buffer -b`/`paste-buffer -b -p -d`; separate `send-keys Enter`. Geometry `200×50`
    is load-bearing for readiness/marker parsing.
-6. **ttyd invocation + tracking.** `ttyd -W -i 127.0.0.1 -p 0 -t disableLeaveAlert=true -t
- fontFamily=<Nerd Font family> -t fontSize=15 -t
- theme={...dark ITheme...,"DISPATCH_TTYD_REVISION":<revision>} tmux attach -t =<session>`; port parsed from stderr
-   `Listening on port: N`; loopback bind mandatory; orphan-sweep ownership proof
-   (`basename(argv0)==="ttyd"` AND either argv includes `tmux`+`attach` or the process title contains
-   the exact Dispatch revision literal); exact-current revision marker required for adoption/spare; iframe src
-   `/sessions/${card.id}/terminal/` (same-origin, forwarded by the reverse-proxy — `@see`
-   [Terminal (ttyd)](#terminal-ttyd)).
+6. **ttyd invocation + tracking.** `ttyd -W -i 127.0.0.1 -p 0 -b /sessions/<cardId>/terminal -t
+disableLeaveAlert=true -t DISPATCH_TTYD_REVISION_<revision>=1 tmux attach -t =<session>`; port
+   parsed from stderr `Listening on port: N`; loopback bind mandatory; orphan-sweep ownership proof
+   (`basename(argv0)==="ttyd"` AND argv includes `tmux`+`attach`, OR the process title contains the
+   exact retained-key revision literal); exact-current retained-key revision marker required for
+   adoption/spare (the sole re-adoption fingerprint); iframe src `/sessions/${card.id}/terminal/`
+   (same-origin, forwarded by the reverse-proxy — `@see` [Terminal (ttyd)](#terminal-ttyd)).
 7. **DISPATCH_STATUS marker protocol.** `parse.ts` `MARKER_RE` and the kickoff wording in `kickoff.ts` must
    stay byte-identical to each other (em-dash **U+2014**, the `NEEDS_INPUT`/`DONE` tokens, the
    `<one-line reason>`/`<one-line summary>` placeholders). Dedup semantics (`markerKey`,
@@ -1345,10 +1368,22 @@ ruled out by a real browser constraint, not skipped.
 The accepted residual: same-origin terminal content can reach `window.parent`/`/api/*`. This is
 bounded by three independent factors together — (a) the [gate](#security-threat-model) + the
 Phase-74 ephemeral tunnel (short exposure window, a valid session required to ever reach the
-iframe), (b) ttyd's boot-patched trusted index (no third-party script can be injected into the
-served terminal page), and (c) xterm.js rendering terminal OUTPUT as text, never executing it as
-HTML — so there is no realistic script-injection vector into the iframe's JS context. This is the
-same class of single-user-loopback-bounded risk already accepted at `T-01-05c`.
+iframe), (b) the iframe loads dispatch's OWN built bundle from `WEB_DIST_DIR` (no third-party
+script can be injected into the served terminal page — see [Terminal ttyd](#terminal-ttyd)), and
+(c) xterm.js rendering terminal OUTPUT as text, never executing it as HTML — so there is no
+realistic script-injection vector into the iframe's JS context. This is the same class of
+single-user-loopback-bounded risk already accepted at `T-01-05c`.
+
+### Deferred: tmux `mouse on` for calibrated mobile scroll
+
+The native client's kinetic scroll accumulator is calibrated to tmux's DEFAULT
+`WheelUpPane -> send-keys -X -N 5` binding (`TERM-03`, [Terminal ttyd](#terminal-ttyd)). Mobile
+kinetic scroll therefore depends on the target pane actually having tmux mouse reporting on;
+dispatch deliberately does NOT set tmux `mouse on` globally — that decision stays deferred because
+it changes selection/copy behavior for every existing session, a bigger tradeoff than this slice's
+scope. The `mouseTrackingMode` gate makes the whole wheel path a silent no-op whenever mouse
+reporting is off, so the deferral degrades to "no kinetic scroll in that pane" rather than a
+mis-scroll — safe, not broken. This is an OPEN deferral, not a closed ruling.
 
 ### Phase 73 CR-01 — Loopback Classifier Is Host-Header-Based — CLOSED (Phase 74)
 
