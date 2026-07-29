@@ -111,6 +111,14 @@ function injectFontFace(): void {
  * output uses and `WebLinksAddon` never fires for) so cmd-click parity holds for either link
  * source. `theme` is `null` when the theme fetch failed — the terminal then opens with plain
  * xterm defaults instead of a half-applied theme.
+ * @remarks `smoothScrollDuration: 120` is set unconditionally rather than gated to desktop: a
+ * media-query gate would leave hybrid devices (touchscreen laptops, iPad + trackpad) with an
+ * instant jump, and the value is harmless on its own during a touch gesture. It is also inert for
+ * the entirety of normal dispatch use — under `tmux attach` (the alternate buffer) mouse
+ * reporting intercepts the wheel before `.xterm-viewport` ever scrolls, so the ~120ms animation
+ * is only observable in the normal buffer. The mobile kinetic scroller zeroes this option for the
+ * lifetime of a touch gesture and restores it on settle, so its animation cannot fight the
+ * momentum loop's discrete ticks.
  * @see docs/ARCHITECTURE.md#terminal-ttyd
  */
 function createTerminal(theme: TerminalThemeResponse | null): {
@@ -120,6 +128,7 @@ function createTerminal(theme: TerminalThemeResponse | null): {
   const term = new Terminal({
     allowProposedApi: true,
     cursorBlink: theme?.cursorBlink ?? false,
+    smoothScrollDuration: 120,
     ...(theme
       ? {
           theme: theme.theme,
@@ -200,7 +209,7 @@ function attachShiftEnterHandler(
  * fires) would otherwise reset the budget every cycle and reconnect forever, never letting the
  * bounded budget exhaust and the server-driven error contract surface.
  */
-function connect(term: Terminal, mount: HTMLElement, fit: FitAddon): void {
+function connect(term: Terminal): void {
   let attempts = 0;
   let socket: WebSocket | null = null;
 
@@ -247,10 +256,35 @@ function connect(term: Terminal, mount: HTMLElement, fit: FitAddon): void {
 
   open();
   attachShiftEnterHandler(term, () => socket);
+}
 
+/**
+ * Mounts the terminal into the DOM and keeps it fit to its container, kept separate from
+ * `connect()` so a mounted-but-not-yet-connected terminal exists for the mobile zoom controller
+ * to wire against before the socket opens — safe because `ws.onopen` cannot fire until `connect()`
+ * runs later, so `fit()` here still wins the race and `sendHandshake` still carries measured
+ * dimensions.
+ * @remarks The `ResizeObserver` callback is rAF-coalesced (a single pending-frame id, cleared on
+ * fire) rather than calling `fit.fit()` synchronously per notification. This immunizes against
+ * "ResizeObserver loop completed with undelivered notifications" and smooths Android's
+ * soft-keyboard resize storm, where the visual viewport shrinks per keystroke burst and each
+ * RO -> `fit()` -> `resize()` costs a RESIZE frame plus a full tmux pane repaint.
+ */
+function mountTerminal(
+  term: Terminal,
+  mount: HTMLElement,
+  fit: FitAddon,
+): void {
   term.open(mount);
   fit.fit();
-  new ResizeObserver(() => fit.fit()).observe(mount);
+  let pendingFrame: number | undefined;
+  new ResizeObserver(() => {
+    if (pendingFrame !== undefined) return;
+    pendingFrame = requestAnimationFrame(() => {
+      pendingFrame = undefined;
+      fit.fit();
+    });
+  }).observe(mount);
 }
 
 async function main(): Promise<void> {
@@ -260,7 +294,8 @@ async function main(): Promise<void> {
   injectFontFace();
   const { term, fit } = createTerminal(theme);
   await fontsReady();
-  connect(term, mount, fit);
+  mountTerminal(term, mount, fit);
+  connect(term);
 }
 
 void main();
