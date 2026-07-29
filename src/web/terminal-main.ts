@@ -315,9 +315,10 @@ function mountTerminal(
  * Tuning for the mobile kinetic scroller. A tick is worth `reportLinesPerTick` (wheel destined for
  * a mouse-reporting app) or `viewportLinesPerTick` (wheel destined for xterm's own viewport) rows
  * of content, and a row's height changes with the zoom level — see `rowHeightPx`, referenced from
- * `drain`'s `perTick` local. `reportLinesPerTick` is 5 to match tmux's default `copy-mode
- * WheelUpPane -> send-keys -X -N 5 scroll-up` binding; `viewportLinesPerTick` is 1 because xterm's
- * own viewport consumes a `deltaMode: 1` tick as exactly one row. `maxTicksPerDrain` caps the
+ * `drain`'s `perTick` local. `reportLinesPerTick` is 1 because the real workload's mouse report is
+ * consumed by Claude Code, not by tmux copy-mode, and Claude Code scrolls exactly one line per
+ * report (measured); `viewportLinesPerTick` is 1 because xterm's own viewport consumes a
+ * `deltaMode: 1` tick as exactly one row. `maxTicksPerDrain` caps the
  * SGR-report / tmux-repaint throughput a single `drain()` call can generate — `drain()` runs once
  * per `touchmove`, not once per animation frame, so this bounds throughput per event rather than
  * per frame; `friction` and `minVelocity` shape the momentum decay; `slopPx` is what preserves
@@ -330,9 +331,9 @@ const KINETIC = {
   slopPx: 8,
   friction: 0.95,
   minVelocity: 0.02,
-  maxTicksPerDrain: 2,
+  maxTicksPerDrain: 8,
   velocityEma: 0.7,
-  reportLinesPerTick: 5,
+  reportLinesPerTick: 1,
   viewportLinesPerTick: 1,
   maxMomentumMs: 1200,
   releaseWindowMs: 100,
@@ -351,10 +352,14 @@ const KINETIC = {
  * installs its wheel listener and the always-on handler's `if (requestedEvents.wheel)` short-circuit
  * does not fire — a dispatched tick reaches the cursor-key fallback and is typed into the prompt,
  * which is exactly the failure this gate exists to prevent.
- * @remarks TERM-03: one synthetic tick equals one mouse report, and tmux's default binding sends 5
- * lines per report (`WheelUpPane -> send-keys -X -N 5`), which is why the kinetic accumulator scales
- * by `rowHeightPx * KINETIC.reportLinesPerTick` in the `"report"` case rather than emitting per
- * pixel — a raw pixel-for-pixel dispatch would over-scroll roughly 5x.
+ * @remarks TERM-03: one synthetic tick equals one mouse report. A live `claude` REPL pane carries
+ * `alternate_on=1` and `mouse_any_flag=1`, so tmux's default root `WheelUpPane` `if-shell` takes its
+ * `send-keys -M` branch and forwards the report to the pane app; Claude Code then scrolls exactly
+ * one line per report (measured), which is why the kinetic accumulator scales by
+ * `rowHeightPx * KINETIC.reportLinesPerTick`, now `1` — one report per one row of finger travel.
+ * tmux's `send-keys -X -N 5` copy-mode path is never reached in this workload
+ * (`history_size=0` proves copy-mode has nothing to show); calibrating to it is what produced the
+ * v2.7 5x under-scroll.
  * @see docs/ARCHITECTURE.md#terminal-ttyd
  */
 function scrollMode(term: Terminal): "report" | "viewport" | "none" {
@@ -460,9 +465,6 @@ function attachKineticScroll(term: Terminal): void {
       emitTick(term, dir, x, y);
       accum -= dir * perTick;
       emitted += 1;
-    }
-    if (emitted === KINETIC.maxTicksPerDrain && Math.abs(accum) >= perTick) {
-      accum = 0;
     }
   };
 

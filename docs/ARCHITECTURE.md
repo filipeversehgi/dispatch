@@ -492,10 +492,22 @@ scroller never calls it — it dispatches synthetic `WheelEvent`s with `deltaMod
 `mouseTrackingMode` being neither `"none"` NOR `"x10"`: X10's event mask is `DOWN`-only, so an
 engaged wheel there would be re-encoded by xterm as `ESC[A`/`ESC[B` and typed straight into the
 live `claude` prompt — engaging in that state is strictly worse than not scrolling. One synthetic
-tick equals one mouse report, and tmux's default binding sends 5 lines per report
-(`WheelUpPane -> send-keys -X -N 5`), which is why the kinetic accumulator scales by
-`rowHeight * 5` rather than emitting per pixel — a raw pixel-for-pixel dispatch would over-scroll
-roughly 5x. `#terminal, #terminal .xterm { touch-action: none }` — NOT `pan-y` — is deliberate: the
+tick equals one mouse report. A live `claude` REPL pane carries `alternate_on=1` and
+`mouse_any_flag=1` (measured), so tmux's default root `WheelUpPane` `if-shell` takes its
+`send-keys -M` branch and forwards the report to the pane app — not to tmux itself. Claude Code,
+not tmux, is therefore the report's consumer, and it scrolls exactly one line per report (measured
+1→1, 5→5, 6→6). The kinetic accumulator scales by `rowHeight * 1`: one report per one row of finger
+travel. Calibrating to tmux's `copy-mode` `send-keys -X -N 5 scroll-up` binding instead — as v2.7
+originally did — is what caused a 5x under-scroll, because that binding is never reached in this
+workload (`history_size=0` proves copy-mode has nothing to show to scroll). At one line per report,
+`drain`'s `perTick` is a single row (~17px), so a `drain` call that hits `maxTicksPerDrain` is
+handling ordinary finger travel, not an outlier — its remainder MUST carry into the next call rather
+than be discarded, or a fast drag silently loses distance. The one accepted exception: a pane at a
+bare shell prompt (`mouse_any_flag=0`, `alternate_on=0`) with tmux `mouse on` falls through to
+`copy-mode -e` and genuinely is 5 lines per report, so that case over-scrolls 5x. The browser cannot
+observe the pane app's mouse mode, so this is knowingly accepted rather than mis-calibrating the
+~100% case that actually runs Claude Code.
+`#terminal, #terminal .xterm { touch-action: none }` — NOT `pan-y` — is deliberate: the
 client dispatches the wheel events itself, so granting the browser vertical panning double-scrolls,
 and `none` additionally removes Chrome's "scroll already started, preventDefault ignored" race.
 `html, body { -webkit-text-size-adjust: 100% }` is load-bearing for the same reason: without it,
