@@ -136,6 +136,10 @@ let currentZoom = 1;
  * momentum loop's discrete ticks. `zoom` is folded into `fontSize` here, before `term.open()`, so
  * the first WS handshake already carries the zoomed column count — no wrong-size first paint, no
  * redundant RESIZE, no reliance on microtask ordering against `ws.onopen`.
+ * @remarks TERM-03: `html, body { -webkit-text-size-adjust: 100% }` (declared in `terminal.html`)
+ * pins iOS text inflation. Without it, `charWidth` stops tracking `fontSize` after the OS-level page
+ * inflates text, and the entire zoom / effective-column-width feature's math (`baseFontSize * zoom`,
+ * `fit.fit()`'s cell measurement) goes invalid.
  * @see docs/ARCHITECTURE.md#terminal-ttyd
  */
 function createTerminal(
@@ -309,49 +313,67 @@ function mountTerminal(
 }
 
 /**
- * Tuning for the mobile kinetic scroller. `PX_PER_TICK` is derived rather than fixed because a
- * tick is worth `altLinesPerTick`/`normalLinesPerTick` rows of content, and a row's height changes
- * with the zoom level. `altLinesPerTick` is 5 to match tmux's default `copy-mode WheelUpPane ->
- * send-keys -X -N 5 scroll-up` binding; `normalLinesPerTick` is 1 because xterm's own viewport
- * consumes a `deltaMode: 1` tick as exactly one row. `maxTicksPerFrame` and `maxMomentumMs` cap the
- * SGR-report / tmux-repaint throughput a flick can generate over a tunnel; `friction` and
- * `minVelocity` shape the momentum decay; `slopPx` is what preserves tap-to-focus.
- * `releaseWindowMs` is how stale the last `touchmove` may be for the release to still count as a
- * flick — beyond it the finger was resting, and the last motion's velocity must not fling.
+ * Tuning for the mobile kinetic scroller. A tick is worth `reportLinesPerTick` (wheel destined for
+ * a mouse-reporting app) or `viewportLinesPerTick` (wheel destined for xterm's own viewport) rows
+ * of content, and a row's height changes with the zoom level — see `rowHeightPx`, referenced from
+ * `drain`'s `perTick` local. `reportLinesPerTick` is 5 to match tmux's default `copy-mode
+ * WheelUpPane -> send-keys -X -N 5 scroll-up` binding; `viewportLinesPerTick` is 1 because xterm's
+ * own viewport consumes a `deltaMode: 1` tick as exactly one row. `maxTicksPerDrain` caps the
+ * SGR-report / tmux-repaint throughput a single `drain()` call can generate — `drain()` runs once
+ * per `touchmove`, not once per animation frame, so this bounds throughput per event rather than
+ * per frame; `friction` and `minVelocity` shape the momentum decay; `slopPx` is what preserves
+ * tap-to-focus. `releaseWindowMs` is how stale the last `touchmove` may be for the release to still
+ * count as a flick — beyond it the finger was resting, and the last motion's velocity must not
+ * fling. `fallbackRowPx` is only reachable from `rowHeightPx` before `term.open()` has mounted the
+ * element.
  */
 const KINETIC = {
   slopPx: 8,
   friction: 0.95,
   minVelocity: 0.02,
-  maxTicksPerFrame: 2,
+  maxTicksPerDrain: 2,
   velocityEma: 0.7,
-  altLinesPerTick: 5,
-  normalLinesPerTick: 1,
+  reportLinesPerTick: 5,
+  viewportLinesPerTick: 1,
   maxMomentumMs: 1200,
   releaseWindowMs: 100,
+  fallbackRowPx: 17,
 } as const;
 
 /**
- * Scroll mode for the current gesture. `"none"` means the alternate buffer is active but no
- * wheel-carrying mouse protocol is enabled, so a dispatched wheel would be re-encoded by xterm as
- * cursor keys and typed straight into Claude's prompt — engaging there is strictly worse than not
- * scrolling at all.
- * @remarks `"x10"` is excluded alongside `"none"` because the X10 protocol's event mask is
- * `DOWN` only (`CoreMouseService`'s X10 entry additionally rejects the wheel button outright), so
- * xterm never installs its wheel listener and the always-on handler's `if (requestedEvents.wheel)`
- * short-circuit does not fire — a dispatched tick reaches the cursor-key fallback and is typed into
- * the prompt, which is exactly the failure this gate exists to prevent.
+ * Scroll mode for the current gesture, keyed on the wheel's DESTINATION rather than the active
+ * buffer: an app can enable `DECSET 1000/1002` mouse reporting without ever switching to the
+ * alternate screen, and once reporting is on a dispatched wheel is consumed as a mouse report
+ * regardless of which buffer is showing. `"none"` means a dispatched wheel would be re-encoded by
+ * xterm as cursor keys and typed straight into Claude's prompt — engaging there is strictly worse
+ * than not scrolling at all.
+ * @remarks `"x10"` is treated exactly like `"none"`: the X10 protocol's event mask is `DOWN` only
+ * (`CoreMouseService`'s X10 entry additionally rejects the wheel button outright), so xterm never
+ * installs its wheel listener and the always-on handler's `if (requestedEvents.wheel)` short-circuit
+ * does not fire — a dispatched tick reaches the cursor-key fallback and is typed into the prompt,
+ * which is exactly the failure this gate exists to prevent.
+ * @remarks TERM-03: one synthetic tick equals one mouse report, and tmux's default binding sends 5
+ * lines per report (`WheelUpPane -> send-keys -X -N 5`), which is why the kinetic accumulator scales
+ * by `rowHeightPx * KINETIC.reportLinesPerTick` in the `"report"` case rather than emitting per
+ * pixel — a raw pixel-for-pixel dispatch would over-scroll roughly 5x.
  * @see docs/ARCHITECTURE.md#terminal-ttyd
  */
-function scrollMode(term: Terminal): "alt" | "normal" | "none" {
-  if (term.buffer.active.type !== "alternate") return "normal";
+function scrollMode(term: Terminal): "report" | "viewport" | "none" {
   const tracking = term.modes.mouseTrackingMode;
-  return tracking === "none" || tracking === "x10" ? "none" : "alt";
+  if (tracking !== "none" && tracking !== "x10") return "report";
+  return term.buffer.active.type === "alternate" ? "none" : "viewport";
 }
 
+/**
+ * Row height in device px for the current font size, used to scale a mouse-report or viewport tick
+ * into pixels. Falls back to `KINETIC.fallbackRowPx` only when `term.element` has not mounted yet
+ * or `term.rows` is not yet known — unreachable once `mountTerminal` has run `term.open()`.
+ */
 function rowHeightPx(term: Terminal): number {
   const el = term.element;
-  return el && term.rows > 0 ? el.clientHeight / term.rows : 17;
+  return el && term.rows > 0
+    ? el.clientHeight / term.rows
+    : KINETIC.fallbackRowPx;
 }
 
 /**
@@ -398,11 +420,20 @@ function emitTick(term: Terminal, dir: 1 | -1, x: number, y: number): void {
  * @remarks Velocity is only recomputed on `touchmove`, so a drag that ends with the finger held
  * still would otherwise release the last motion's stale velocity as a phantom flick; a release more
  * than `releaseWindowMs` after the last move is treated as a deliberate stop.
+ * @remarks TERM-03: `#terminal, #terminal .xterm { touch-action: none }` (declared in
+ * `terminal.html`) is deliberate and must NOT be relaxed to `pan-y` — this module dispatches the
+ * wheel events itself via `emitTick`, so granting the browser vertical panning double-scrolls, and
+ * `none` additionally removes Chrome's "scroll already started, preventDefault ignored" race. This
+ * is the client half of the alternate-buffer contract: `term.scrollLines()` is a verified no-op
+ * there, so the only way to move content is a synthetic `WheelEvent` with `deltaMode: 1` dispatched
+ * at `term.element`, which is exactly what `emitTick` does and what `drain` paces. The drag phase
+ * recomputes `scrollMode(term)` on every `touchmove` rather than caching it at `touchstart` — a drag
+ * lasts far longer than a flick, so a mid-drag buffer flip (`q`-ing out of a TUI) must not leave the
+ * rest of the gesture calibrated against a stale mode.
  */
 function attachKineticScroll(term: Terminal): void {
   let tracking = false;
   let engaged = false;
-  let mode: "alt" | "normal" = "normal";
   let accum = 0;
   let velocity = 0;
   let startY = 0;
@@ -413,7 +444,7 @@ function attachKineticScroll(term: Terminal): void {
   let restoreScrollDuration = term.options.smoothScrollDuration;
 
   const drain = (
-    tickMode: "alt" | "normal",
+    tickMode: "report" | "viewport",
     px: number,
     x: number,
     y: number,
@@ -421,17 +452,19 @@ function attachKineticScroll(term: Terminal): void {
     accum += px;
     const perTick =
       rowHeightPx(term) *
-      (tickMode === "alt"
-        ? KINETIC.altLinesPerTick
-        : KINETIC.normalLinesPerTick);
+      (tickMode === "report"
+        ? KINETIC.reportLinesPerTick
+        : KINETIC.viewportLinesPerTick);
     let emitted = 0;
-    while (Math.abs(accum) >= perTick && emitted < KINETIC.maxTicksPerFrame) {
+    while (Math.abs(accum) >= perTick && emitted < KINETIC.maxTicksPerDrain) {
       const dir = accum > 0 ? 1 : -1;
       emitTick(term, dir, x, y);
       accum -= dir * perTick;
       emitted += 1;
     }
-    if (emitted === KINETIC.maxTicksPerFrame) accum = 0;
+    if (emitted === KINETIC.maxTicksPerDrain && Math.abs(accum) >= perTick) {
+      accum = 0;
+    }
   };
 
   const engageGesture = (): void => {
@@ -455,9 +488,14 @@ function attachKineticScroll(term: Terminal): void {
     settleGesture();
   };
 
-  const runMomentum = (startTime: number): void => {
-    let lastFrameT = startTime;
+  const runMomentum = (): void => {
+    let startTime: number | undefined;
+    let lastFrameT = 0;
     const step = (now: number): void => {
+      if (startTime === undefined) {
+        startTime = now;
+        lastFrameT = now;
+      }
       const frameMode = scrollMode(term);
       if (frameMode === "none" || now - startTime > KINETIC.maxMomentumMs) {
         momentumFrame = undefined;
@@ -497,12 +535,10 @@ function attachKineticScroll(term: Terminal): void {
         tracking = false;
         return;
       }
-      const sm = scrollMode(term);
-      if (sm === "none") {
+      if (scrollMode(term) === "none") {
         tracking = false;
         return;
       }
-      mode = sm;
       tracking = true;
       engaged = false;
       accum = 0;
@@ -520,6 +556,12 @@ function attachKineticScroll(term: Terminal): void {
     "touchmove",
     (e) => {
       if (!tracking || e.touches.length !== 1) return;
+      const mode = scrollMode(term);
+      if (mode === "none") {
+        tracking = false;
+        settleGesture();
+        return;
+      }
       const t = e.touches[0];
       if (!engaged) {
         if (Math.abs(t.clientY - startY) < KINETIC.slopPx) return;
@@ -544,7 +586,7 @@ function attachKineticScroll(term: Terminal): void {
     tracking = false;
     if (e.timeStamp - lastT > KINETIC.releaseWindowMs) velocity = 0;
     if (engaged && Math.abs(velocity) > KINETIC.minVelocity) {
-      runMomentum(performance.now());
+      runMomentum();
     } else {
       settleGesture();
     }
@@ -584,8 +626,11 @@ const ZOOM = {
 const ZOOM_KEY = "dsp.terminal.zoom";
 
 /**
- * Reads the persisted zoom level, snapped to the nearest `ZOOM.steps` entry and falling back to
- * `1` on a missing/`NaN`/out-of-range value.
+ * Reads the persisted zoom level. A missing, non-numeric, non-finite, or non-positive value falls
+ * back to `1`; any other value is CLAMPED by snapping to the nearest `ZOOM.steps` entry, so a
+ * corrupted or hostile stored value can never escape the 60%-140% band. Clamping is preferred over
+ * resetting because it keeps the terminal at the closest sane size rather than silently discarding
+ * the user's persisted preference.
  * @remarks Wrapped in `try/catch`: without `allow-same-origin` on the iframe, `localStorage`
  * access throws `SecurityError` rather than returning `null`, which would take the whole terminal
  * page down.
@@ -648,6 +693,7 @@ function renderChipLevel(z: number): void {
 function attachZoomControl(term: Terminal, fit: FitAddon): void {
   let startDist = 0;
   let startZoom = currentZoom;
+  let requestedZoom = currentZoom;
   let pendingRaw: number | null = null;
   let frameQueued = false;
   let trailingTimer: ReturnType<typeof setTimeout> | undefined;
@@ -663,17 +709,18 @@ function attachZoomControl(term: Terminal, fit: FitAddon): void {
     }, ZOOM.chipHideMs);
   };
 
-  const commitZoom = (raw: number): void => {
+  const commitZoom = (raw: number): boolean => {
     const step = ZOOM.steps.reduce((closest, s) =>
       Math.abs(s - raw) < Math.abs(closest - raw) ? s : closest,
     );
-    if (step === currentZoom) return;
+    if (step === currentZoom) return false;
     term.options.fontSize = Math.max(ZOOM.minFontPx, baseFontSize * step);
     fit.fit();
     currentZoom = step;
     writeZoom(step);
     renderChipLevel(step);
     showChip();
+    return true;
   };
 
   const flushPending = (): void => {
@@ -685,11 +732,11 @@ function attachZoomControl(term: Terminal, fit: FitAddon): void {
     if (pendingRaw === null) return;
     const raw = pendingRaw;
     pendingRaw = null;
-    lastCommitAt = performance.now();
-    commitZoom(raw);
+    if (commitZoom(raw)) lastCommitAt = performance.now();
   };
 
   const requestZoom = (raw: number): void => {
+    requestedZoom = raw;
     pendingRaw = raw;
     if (trailingTimer !== undefined) clearTimeout(trailingTimer);
     trailingTimer = setTimeout(flushPending, ZOOM.commitFloorMs);
@@ -708,6 +755,8 @@ function attachZoomControl(term: Terminal, fit: FitAddon): void {
         const [a, b] = [e.touches[0], e.touches[1]];
         startDist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
         startZoom = currentZoom;
+      } else {
+        startDist = 0;
       }
     },
     { capture: true, passive: true },
@@ -727,6 +776,7 @@ function attachZoomControl(term: Terminal, fit: FitAddon): void {
   );
 
   const onPinchEnd = (): void => {
+    if (startDist === 0) return;
     startDist = 0;
     flushPending();
   };
@@ -756,7 +806,7 @@ function attachZoomControl(term: Terminal, fit: FitAddon): void {
     if (!dir) return;
     e.preventDefault();
     e.stopPropagation();
-    const index = (ZOOM.steps as readonly number[]).indexOf(currentZoom);
+    const index = (ZOOM.steps as readonly number[]).indexOf(requestedZoom);
     const nextIndex = Math.min(
       ZOOM.steps.length - 1,
       Math.max(0, (index === -1 ? 4 : index) + (dir === "in" ? 1 : -1)),
