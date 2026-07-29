@@ -423,17 +423,12 @@ mutation performs no promotion and is therefore safe in every column.
 The per-session ttyd manager (`adapters/ttyd.ts`) spawns, tracks, and reuses a writable,
 loopback-only web terminal attached to an existing `dsp-<identifier>` tmux session, so the live
 `claude` REPL can be embedded in the detail-panel iframe (`TERM-01`). Its invocation is fixed and
-load-bearing: `ttyd -W -i 127.0.0.1 -p 0 -t disableLeaveAlert=true -t
-fontFamily=<bundled Nerd Font family> -t fontSize=15 -t
-theme={...dark ITheme...,"DISPATCH_TTYD_REVISION":<revision>} tmux attach -t =<session>`. The
-`fontFamily`/`fontSize`/`theme` values are fixed, server-authored constants (never
-Linear- or user-sourced) forwarded to xterm's `Terminal` constructor over ttyd's own
-`SET_PREFERENCES` websocket frame post-connect (`TERM-02`); the theme's hex/rgba values are
-hardcoded because the ttyd client is a separate origin/process that cannot read dispatch's
-`tokens.css` custom properties. The bundled font's Unicode cmaps must map Claude Code's U+23FA and
-U+23F5 symbols to its existing U+25CF circle and U+25B6 triangle glyphs in every Unicode subtable;
-system fallback is not a substitute because xterm requires deterministic same-cell monospace
-metrics across browser and host configurations.
+load-bearing: `ttyd -W -i 127.0.0.1 -p 0 -b /sessions/<cardId>/terminal -t
+disableLeaveAlert=true -t DISPATCH_TTYD_REVISION_<revision>=1 tmux attach -t =<session>`. The
+bundled font's Unicode cmaps must map Claude Code's U+23FA and U+23F5 symbols to its existing
+U+25CF circle and U+25B6 triangle glyphs in every Unicode subtable; system fallback is not a
+substitute because xterm requires deterministic same-cell monospace metrics across browser and
+host configurations.
 
 **Adoption is runtime-revision gated.** ttyd rewrites its process title but retains its theme JSON
 and the direct tmux command, so an inert `"DISPATCH_TTYD_REVISION":<revision>` metadata property in

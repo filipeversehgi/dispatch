@@ -3,19 +3,18 @@ import net from "node:net";
 import path from "node:path";
 import { promisify } from "node:util";
 import { store } from "../store/board.store.js";
-import { FONT_FAMILY } from "../../shared/nerd-font-mono.js";
 
 const execFileP = promisify(execFile);
 const TTYD_RUNTIME_REVISION = 4;
 const TTYD_RUNTIME_REVISION_KEY = "DISPATCH_TTYD_REVISION";
-const TTYD_RUNTIME_REVISION_MARKER = `"${TTYD_RUNTIME_REVISION_KEY}":${TTYD_RUNTIME_REVISION}`;
 
 /**
- * The `DISPATCH_NATIVE_TERMINAL` argv token, `-t`'d as a retained bare key (arbitrary value `1`)
- * so a flag-ON ttyd stays fingerprintable even after `-t theme=…` (the flag-OFF marker's home) is
- * dropped. The revision lives in the KEY, not the value, because ttyd rewrites `=`→space in its
- * proctitle — a value-side revision would split into two separate, ungreppable tokens
- * (RESEARCH.md §4, empirically verified against installed ttyd 1.7.7).
+ * The sole re-adoption fingerprint, `-t`'d as a retained bare key (arbitrary value `1`) rather
+ * than in the theme JSON that used to also carry it — that JSON is gone now that the native
+ * client owns theme/font, so this key is the ONLY marker left. It lives in the KEY, not the
+ * value, because ttyd rewrites `=`→space in its proctitle — a value-side revision would split
+ * into two separate, ungreppable tokens (RESEARCH.md §4, empirically verified against installed
+ * ttyd 1.7.7).
  * @see docs/ARCHITECTURE.md#terminal-ttyd
  */
 const TTYD_RUNTIME_REVISION_RETAINED_KEY = `${TTYD_RUNTIME_REVISION_KEY}_${TTYD_RUNTIME_REVISION}`;
@@ -24,54 +23,15 @@ const escapeRegExp = (s: string): string =>
   s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
- * Boundary-anchored matchers for the current revision inside a ttyd proctitle. A bare substring
- * `includes` of the revision-4 marker would also fire on a future revision 40–49 (`…REVISION":4`
- * is a prefix of `…REVISION":40`, and likewise for the retained key), silently adopting a
- * process spawned by an incompatible runtime contract. The trailing `(?!\d)` negative lookahead
- * pins each match to exactly this revision.
+ * Boundary-anchored matcher for the current revision inside a ttyd proctitle. A bare substring
+ * `includes` of the retained key would also fire on a future revision 40–49 (`…REVISION_4` is a
+ * prefix of `…REVISION_40`), silently adopting a process spawned by an incompatible runtime
+ * contract. The trailing `(?!\d)` negative lookahead pins the match to exactly this revision.
  * @see docs/ARCHITECTURE.md#terminal-ttyd
  */
-const REVISION_MARKER_RE = new RegExp(
-  `${escapeRegExp(TTYD_RUNTIME_REVISION_MARKER)}(?!\\d)`,
-);
 const REVISION_RETAINED_KEY_RE = new RegExp(
   `${escapeRegExp(TTYD_RUNTIME_REVISION_RETAINED_KEY)}(?!\\d)`,
 );
-
-/**
- * Dark xterm `ITheme` delivered to ttyd via `-t theme=` (SET_PREFERENCES over the websocket).
- * Hardcoded hex/rgba, not a CSS-variable reference, because the ttyd client is a separate
- * origin/process that cannot read dispatch's `tokens.css` custom properties — these values are
- * the resolved hexes for `--bg`/`--text`/`--accent` etc. `selectionForeground` is deliberately
- * left unset so the underlying text color still shows through the translucent selection overlay.
- * @remarks TERM-02.
- * @see docs/ARCHITECTURE.md#terminal-ttyd
- */
-const DARK_THEME = {
-  background: "#0b0c0e",
-  foreground: "#e8e9ea",
-  cursor: "#5e6ad2",
-  cursorAccent: "#0b0c0e",
-  selectionBackground: "rgba(94,106,210,0.35)",
-  selectionInactiveBackground: "rgba(94,106,210,0.18)",
-  black: "#26272b",
-  red: "#e5484d",
-  green: "#3fb950",
-  yellow: "#d9b23c",
-  blue: "#5e6ad2",
-  magenta: "#a371f7",
-  cyan: "#56d4dd",
-  white: "#e8e9ea",
-  brightBlack: "#8a8f98",
-  brightRed: "#ff6b6b",
-  brightGreen: "#56d364",
-  brightYellow: "#e3b341",
-  brightBlue: "#79c0ff",
-  brightMagenta: "#d2a8ff",
-  brightCyan: "#76e3ea",
-  brightWhite: "#ffffff",
-  [TTYD_RUNTIME_REVISION_KEY]: TTYD_RUNTIME_REVISION,
-};
 
 interface TtydProc {
   child: ChildProcess | null;
@@ -116,10 +76,6 @@ const READY_POLL_CADENCE_MS = 100;
  *      in-flight entry on settle (success or failure).
  * Steps 1-3 run with NO await between the check and the in-flight `set`, so a second concurrent
  * call always sees the entry — the whole point of the single-flight guard.
- * `indexPath` (TTYD_INDEX_PATH when the boot-provisioned artifact exists, else null) is resolved
- * by the caller rather than imported here: `services/infra/paths.js` lives one layer above `adapters` in
- * the backend DAG (boundaries/element-types), so the existence check happens in
- * `services/orchestration/terminal.ts` and the result is threaded through as plain data.
  * `cardId` threads through to `spawnTtyd`'s `-b /sessions/<cardId>/terminal` base-path so the
  * card.id-keyed reverse proxy (PROXY-01) can route to this exact process.
  * @remarks TERM-01: writable + loopback-only ttyd, single-flight spawn (T-03-07), port parsed
@@ -127,11 +83,7 @@ const READY_POLL_CADENCE_MS = 100;
  * @see docs/ARCHITECTURE.md#terminal-ttyd
  * @see docs/ARCHITECTURE.md#security-threat-model
  */
-export function ensureTtyd(
-  session: string,
-  cardId: string,
-  indexPath: string | null,
-): Promise<number> {
+export function ensureTtyd(session: string, cardId: string): Promise<number> {
   const existing = procs.get(session);
   if (existing) {
     if (existing.child === null) {
@@ -140,7 +92,7 @@ export function ensureTtyd(
         if (procs.get(session) === existing) procs.delete(session);
         const pending = inFlight.get(session);
         if (pending) return pending;
-        return ensureTtyd(session, cardId, indexPath);
+        return ensureTtyd(session, cardId);
       });
     }
     if (existing.child.exitCode === null) return Promise.resolve(existing.port);
@@ -149,7 +101,7 @@ export function ensureTtyd(
   const pending = inFlight.get(session);
   if (pending) return pending;
 
-  const promise = spawnTtyd(session, cardId, indexPath).finally(() =>
+  const promise = spawnTtyd(session, cardId).finally(() =>
     inFlight.delete(session),
   );
   inFlight.set(session, promise);
@@ -184,28 +136,19 @@ export function getLiveTtydPort(session: string): number | null {
 }
 
 /**
- * Spawn a fresh ttyd, parse its port, confirm readiness, and track it. Rejects on failure. The
- * `-I` flag is added only when the caller resolved a non-null `indexPath` (TTYD_INDEX_PATH exists
- * at spawn time) — provisionTtydIndex deletes that file on any failed boot-time patch, so its
- * existence is a trustworthy, per-spawn signal for the cmd+click-gated index versus stock ttyd
- * behavior. `-b /sessions/<cardId>/terminal` scopes ttyd's own asset/WS routing to the
- * card.id-keyed prefix the reverse proxy forwards under (PROXY-01) — confirmed by a live spike
- * (72-RESEARCH.md) to change ttyd's server-side routing only, never the served bytes, so the
- * boot-time index-patch pipeline needs no change. ttyd stays loopback-bound (`-i 127.0.0.1 -p 0`
- * unchanged) — reachable only through the proxy.
- * @remarks `DISPATCH_NATIVE_TERMINAL` is read fresh from `process.env` on every spawn, never
- * cached, so a backend restart with a flipped flag takes effect on the very next spawn. ON drops
- * `-I`/`-t theme|fontFamily|fontSize` (dispatch's own client now owns the look) and substitutes
- * `TTYD_RUNTIME_REVISION_RETAINED_KEY` as the re-adoption fingerprint that would otherwise be lost
- * with the theme JSON; OFF keeps today's exact argv shape.
+ * Spawn a fresh ttyd, parse its port, confirm readiness, and track it. Rejects on failure. `-b
+ * /sessions/<cardId>/terminal` scopes ttyd's own asset/WS routing to the card.id-keyed prefix the
+ * reverse proxy forwards under (PROXY-01) — confirmed by a live spike (72-RESEARCH.md) to change
+ * ttyd's server-side routing only, never the served bytes. ttyd stays loopback-bound (`-i
+ * 127.0.0.1 -p 0` unchanged) — reachable only through the proxy.
+ * @remarks This argv shape is fixed and unconditional — no environment variable selects an
+ * alternate form. `disableLeaveAlert=true` and `TTYD_RUNTIME_REVISION_RETAINED_KEY=1` are the only
+ * two `-t` tokens: no `-I` served index, no `-t theme|fontFamily|fontSize` (dispatch's own
+ * built-bundle client now owns the look entirely), and the retained key is the sole re-adoption
+ * fingerprint left once the theme JSON marker is gone.
  * @see docs/ARCHITECTURE.md#terminal-ttyd
  */
-async function spawnTtyd(
-  session: string,
-  cardId: string,
-  indexPath: string | null,
-): Promise<number> {
-  const nativeTerminal = Boolean(process.env.DISPATCH_NATIVE_TERMINAL);
+async function spawnTtyd(session: string, cardId: string): Promise<number> {
   const child = spawn(
     "ttyd",
     [
@@ -216,19 +159,10 @@ async function spawnTtyd(
       "0",
       "-b",
       `/sessions/${cardId}/terminal`,
-      ...(nativeTerminal ? [] : indexPath != null ? ["-I", indexPath] : []),
       "-t",
       "disableLeaveAlert=true",
-      ...(nativeTerminal
-        ? ["-t", `${TTYD_RUNTIME_REVISION_RETAINED_KEY}=1`]
-        : [
-            "-t",
-            `fontFamily=${FONT_FAMILY}`,
-            "-t",
-            "fontSize=15",
-            "-t",
-            `theme=${JSON.stringify(DARK_THEME)}`,
-          ]),
+      "-t",
+      `${TTYD_RUNTIME_REVISION_RETAINED_KEY}=1`,
       "tmux",
       "attach",
       "-t",
@@ -480,11 +414,14 @@ export async function findDspTtydOrphans(): Promise<number[]> {
 /**
  * Classify the unchanged Dispatch ttyd ownership fingerprint by runtime-contract compatibility.
  * Every fingerprint match remains sweepable, while only an exact current revision is adoptable.
- * `hasCurrentRevision` matches EITHER the flag-OFF JSON marker (embedded in `-t theme=…`) OR the
- * flag-ON retained-key token (`-t DISPATCH_TTYD_REVISION_<N>=1`, survives with the theme JSON
- * gone) — matching only one form would leave the other flag state's ttyd sweepable but never
- * re-adoptable, a resilience regression on every restart (CONTEXT "Preserve ttyd re-adoption
- * fingerprint").
+ * `hasCurrentRevision` now matches ONLY the retained-key token (`-t
+ * DISPATCH_TTYD_REVISION_<N>=1`) — with the flag gone there is one argv shape, so the flag-OFF
+ * JSON theme marker this used to also match no longer exists. A ttyd spawned by an older dispatch
+ * build (pre-retirement, still carrying the JSON marker) therefore falls out of `compatible`: it
+ * stays a sweep candidate via the unchanged `tmux`+`attach` fingerprint, gets killed on boot, and
+ * the panel fresh-spawns a current-shape ttyd in its place. That one-time degradation on the first
+ * restart after this ships is deliberate, not a bug — narrowing a re-adoption fingerprint may only
+ * decline adoption, never widen it.
  * @see docs/ARCHITECTURE.md#terminal-ttyd
  */
 async function scanDspTtydProcesses(): Promise<{
@@ -506,8 +443,7 @@ async function scanDspTtydProcesses(): Promise<{
     if (pid === process.pid || pid === process.ppid) continue;
     const argv = m[2].trim().split(/\s+/);
     if (path.basename(argv[0]) !== "ttyd") continue;
-    const hasCurrentRevision =
-      REVISION_MARKER_RE.test(m[2]) || REVISION_RETAINED_KEY_RE.test(m[2]);
+    const hasCurrentRevision = REVISION_RETAINED_KEY_RE.test(m[2]);
     if (
       !(argv.includes("tmux") && argv.includes("attach")) &&
       !hasCurrentRevision

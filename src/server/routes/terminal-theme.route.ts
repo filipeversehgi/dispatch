@@ -2,9 +2,9 @@ import { Router } from "express";
 import { resolveTerminalTheme } from "../services/infra/terminal-theme.js";
 
 /**
- * Native terminal theme/font surface behind the shared `/api` loopback guard. Unconditional (not
- * flag-gated on `DISPATCH_NATIVE_TERMINAL`) — ttyd's own served client never calls this, so it is
- * inert when the flag is off.
+ * Native terminal theme/font surface behind the shared `/api` loopback guard. The native client is
+ * the only terminal, so this is the sole theme/font source — there is no ttyd-served alternative
+ * client left to leave it inert for.
  */
 export const terminalThemeRouter = Router();
 

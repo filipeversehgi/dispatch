@@ -18,15 +18,16 @@ import { WEB_DIST_DIR } from "../services/infra/paths.js";
  * 200 instead of ttyd's page. The no-trailing-slash form is forwarded verbatim rather than
  * redirected here, because ttyd under `-b` already answers it with its own 302 to the
  * trailing-slash index (live-verified against ttyd 1.7.7).
- * @remarks With `DISPATCH_NATIVE_TERMINAL` set, a GET on this path serves dispatch's OWN built
- * terminal bundle instead of proxying to ttyd — the live-port resolution and 404-on-unknown-card
- * behavior run FIRST and unchanged, so the bundle is never served for a card with no live session
- * (T-S1-02). `res.sendFile(relPath, { root: WEB_DIST_DIR })` uses the `{ root }` form rather than a
- * pre-joined absolute path so send's dotfile/`..` traversal policy is confined to the relative
- * segment (T-S1-01, the established `spaFallback` pattern). The flag is read fresh from
- * `process.env` on every request, never cached. Flag OFF, or any non-GET (the WS upgrade never
- * reaches this router — it is a Node-level `server.on("upgrade")` handler), falls through to the
- * unchanged `httpForward` proxy.
+ * @remarks Every GET on this path serves dispatch's OWN built terminal bundle instead of proxying
+ * to ttyd — the live-port resolution and 404-on-unknown-card behavior run FIRST and unchanged, so
+ * the bundle is never served for a card with no live session (T-S1-02). `res.sendFile(relPath, {
+ * root: WEB_DIST_DIR })` uses the `{ root }` form rather than a pre-joined absolute path so send's
+ * dotfile/`..` traversal policy is confined to the relative segment (T-S1-01, the established
+ * `spaFallback` pattern). Non-GET requests (the WS upgrade never reaches this router — it is a
+ * Node-level `server.on("upgrade")` handler) continue to forward to ttyd via `httpForward`: this
+ * keeps the route's non-GET behavior exactly what it is today, with no method-narrowing risk taken
+ * as part of removing the flag, and it preserves the `.all` router's named-wildcard / optional
+ * group (`{/*rest}` with an empty `rest`) guarantee this route's own JSDoc documents above.
  * @see docs/ARCHITECTURE.md#terminal-ttyd
  */
 export const terminalProxyRouter = Router();
@@ -37,7 +38,7 @@ terminalProxyRouter.all("/:id/terminal{/*rest}", (req, res) => {
     res.status(404).end();
     return;
   }
-  if (process.env.DISPATCH_NATIVE_TERMINAL && req.method === "GET") {
+  if (req.method === "GET") {
     const rest = req.params.rest as string | string[] | undefined;
     const relPath = Array.isArray(rest) ? rest.join("/") : (rest ?? "");
     res.set("Cache-Control", "no-cache");
