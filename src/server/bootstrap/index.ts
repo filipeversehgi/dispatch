@@ -24,7 +24,6 @@ import {
   setOrchestrationConfig,
 } from "../services/infra/config-holder.js";
 import { checkHooksCapability, installHookArtifacts } from "./hook-setup.js";
-import { provisionTtydIndex } from "./ttyd-index-setup.js";
 import { ensureHyperlinksTerminalFeature } from "../adapters/tmux.js";
 import { unregisterHookToken } from "../services/domain/hook-tokens.js";
 import {
@@ -257,11 +256,6 @@ export async function main(opts: MainOptions = {}): Promise<{ port: number }> {
   store.setPollInterval(config.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
   await ensureHyperlinksTerminalFeature();
   await reconcileSessions();
-  void provisionTtydIndex().catch((err: unknown) => {
-    console.warn(
-      `[ttyd-index] provisioning rejected unexpectedly: ${(err as Error).message}`,
-    );
-  });
   await sweepStrayTunnels().catch((err: unknown) => {
     console.warn(
       `[cloudflared] boot orphan sweep rejected unexpectedly: ${(err as Error).message}`,

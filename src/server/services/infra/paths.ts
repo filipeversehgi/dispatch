@@ -37,18 +37,6 @@ export const HOOK_SETTINGS_PATH = path.join(DISPATCH_DIR, "hook-settings.json");
 export const UPDATE_CACHE_PATH = path.join(DISPATCH_DIR, "update-check.json");
 
 /**
- * The boot-regenerated, cmd+click-patched ttyd served index (see bootstrap/ttyd-index-setup.ts).
- * Absolute (derived from `os.homedir()` via DISPATCH_DIR) because ttyd's `-I` flag is passed a
- * literal path, and it lives beside the other `.dispatch` artifacts since it is regenerated every
- * boot from the installed ttyd binary rather than vendored — a stale copy would silently drift
- * from a `brew upgrade ttyd`, so absence (not staleness) is the only state spawnTtyd ever trusts.
- */
-export const TTYD_INDEX_PATH = path.join(
-  DISPATCH_DIR,
-  "ttyd-index.patched.html",
-);
-
-/**
  * The BUILT frontend bundle root, resolving to `<project-root>/dist/web` in BOTH dev and prod
  * (this module sits 4 directory levels below the project root in each layout: `src/server/services/
  * infra/` and `dist/server/services/infra/`). Deliberately distinct from `bootstrap/index.ts`'s

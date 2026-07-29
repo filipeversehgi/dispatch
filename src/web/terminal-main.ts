@@ -23,8 +23,7 @@ const dec = new TextDecoder();
  * Reverse-tabnabbing-safe, modifier-gated link activator shared by both the plain-text
  * (`WebLinksAddon`) and OSC-8 (`linkHandler`) code paths: open a blank tab, null its opener, THEN
  * navigate — `window.open(url, "_blank")` does not reliably null the opener across browsers, which
- * would let the opened page reach back into this terminal via `window.opener`. Ported verbatim
- * from the ttyd stock-index `PATCH_HANDLER` this client retires.
+ * would let the opened page reach back into this terminal via `window.opener`.
  * @see docs/ARCHITECTURE.md#terminal-ttyd
  */
 function activateLink(event: MouseEvent, uri: string): void {
@@ -84,9 +83,8 @@ async function fetchTheme(): Promise<TerminalThemeResponse | null> {
 /**
  * Self-hosts the bundled Nerd Font via a data-URI `@font-face` and enables ligature/stylistic-set
  * shaping on `.xterm` — the DOM renderer shapes `font-feature-settings` natively, so no WebGL
- * addon is needed. Mirrors the proven `font-face-inject` patch in `bootstrap/ttyd-index-setup.ts`
- * rather than reusing it directly, since that patch operates on ttyd's served HTML string, not a
- * live document.
+ * addon is needed, and the font is self-hosted from a data URI rather than a network request so it
+ * loads with the rest of the bundle instead of racing a separate fetch.
  */
 function injectFontFace(): void {
   const style = document.createElement("style");
@@ -176,8 +174,9 @@ function createTerminal(
 
 /**
  * Bounds font-readiness against a fixed timeout so the terminal always opens even if the woff2
- * never loads (a slow/offline data-URI decode, or a browser without the Font Loading API) —
- * mirrors the ttyd stock-index `font-load-gate` patch's `Promise.race` shape.
+ * never loads (a slow/offline data-URI decode, or a browser without the Font Loading API) — a
+ * `Promise.race` against a timeout is strictly better than an unbounded await, which would leave
+ * the terminal never opening on a browser whose font-loading promise never settles.
  */
 async function fontsReady(): Promise<void> {
   if (!document.fonts?.load) return;
@@ -188,9 +187,9 @@ async function fontsReady(): Promise<void> {
 }
 
 /**
- * Mirrors the ttyd stock-index `shift-enter` patch exactly: a raw LF is sent once, on `keydown`,
- * and BOTH `keydown` and the following `keypress` for the same keystroke are swallowed (`return
- * false`) — xterm's own keypress path independently emits the Enter key's CR immediately after,
+ * A raw LF is sent once, on `keydown`, and BOTH `keydown` and the following `keypress` for the
+ * same keystroke are swallowed (`return false`) — xterm's own keypress path independently emits
+ * the Enter key's CR immediately after,
  * which would submit the message instead of inserting a newline if keypress were left unswallowed
  * (RESEARCH.md Pitfall 6). `isComposing`/`keyup` always pass through untouched for IME safety.
  * @see docs/ARCHITECTURE.md#terminal-ttyd

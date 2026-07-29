@@ -35,7 +35,7 @@ Scope: this doc exists for what layer 1 cannot express — a route file with zer
 ## Backend: `adapters/`
 
 - [ ] All subprocess execution routes through the single argv-array `adapters/exec.ts` chokepoint's `run()` (capture-and-await) or `runInherit()` (stdio-inherit foreground streaming) — no shell, no string interpolation, no new third spawn shape.
-- [ ] No new `node:child_process` import outside the four ruled carve-out files (the exec chokepoint plus its three AUDIT-01 exceptions — see Named Exceptions below); lint-enforced at error, this checklist line is the intent check behind it.
+- [ ] No new `node:child_process` import outside the four ruled carve-out files (the exec chokepoint, its two AUDIT-01 exceptions, and the Phase-74 `cloudflared.ts` extension — see Named Exceptions below); lint-enforced at error, this checklist line is the intent check behind it.
 - [ ] External I/O (Linear poller, image-proxy, editors) stays isolated to this tier — no `services/` or `routes/` file performs external I/O directly.
 
 ## Backend: `store/`
@@ -51,7 +51,7 @@ Scope: this doc exists for what layer 1 cannot express — a route file with zer
 ## Backend: `bootstrap/`
 
 - [ ] Composition-root only: wiring, config holder, binary preflight, boot reconcile. No business logic lives here — if a bootstrap file grows business rules, that's a domain-layer extraction, not a bootstrap concern.
-- [ ] The two named `bootstrap/` exec carve-outs (`ttyd-index-setup.ts`, `cli.ts`) keep their direct `node:child_process` import narrowly scoped to the ruled behavior (a throwaway boot-time ttyd probe; a detached fire-and-forget browser opener) — do not widen either beyond its ruled shape.
+- [ ] The named `bootstrap/` exec carve-out (`cli.ts`) keeps its direct `node:child_process` import narrowly scoped to the ruled behavior (a detached fire-and-forget browser opener) — do not widen it beyond its ruled shape.
 
 ## Frontend: `primitives/`
 
@@ -82,7 +82,7 @@ Scope: this doc exists for what layer 1 cannot express — a route file with zer
 
 Every exception below is a named, narrow allow-rule that survives the error-level flip — cross-checked to exist in the as-landed `eslint.config.ts`, never treated as debt to clear:
 
-- **The 4-file `node:child_process` allow-list.** Only `adapters/exec.ts` (the chokepoint itself), `adapters/ttyd.ts`, `bootstrap/ttyd-index-setup.ts`, and `bootstrap/cli.ts` may import `node:child_process` directly — the AUDIT-01 ruling verbatim (`docs/standards/architecture.md` exec-chokepoint rulings). Any other file importing it directly is a real violation, not a review judgment call.
+- **The 4-file `node:child_process` allow-list.** Only `adapters/exec.ts` (the chokepoint itself), `adapters/ttyd.ts`, `adapters/cloudflared.ts`, and `bootstrap/cli.ts` may import `node:child_process` directly — the AUDIT-01 ruling (`ttyd.ts`, `cli.ts`) plus the Phase-74 `cloudflared.ts` extension (`docs/standards/architecture.md` exec-chokepoint rulings). Any other file importing it directly is a real violation, not a review judgment call.
 - **The image-proxy `adapters-config-consumer` carve-out.** `adapters/image-proxy.ts` is a named file-mode element (`adapters-config-consumer`) allowed to import `services` — the one adapter that reads orchestration config directly from `services/infra/config-holder.ts` instead of receiving it as an injected parameter. Never widen `adapters -> services` generally from this precedent.
 - **The `features/* -> badges` shared-leaf edge.** `CardView.tsx`'s badge deep imports (`GoneBadge`, `SourceBadge`) are sanctioned by design, encoded as the boundaries config's final allow policy — not a violation to flag.
 - **The `watcher -> ttyd -> store` edge.** Both `watcher` and `ttyd` classify as the general `adapters` element; `adapters -> store` is an already-allowed edge. This is a documented architecture invariant (`docs/ARCHITECTURE.md#preserved-import-edges`), not an unenforced gap — no allow-rule was needed to encode it, and none should be added.

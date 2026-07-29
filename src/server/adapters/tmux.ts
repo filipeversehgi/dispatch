@@ -30,8 +30,8 @@ const NO_SERVER_STDERR = /no server running|error connecting/;
  * fail, which is treated as "not yet configured"; an append failure carrying a
  * {@link NO_SERVER_STDERR} signature is silently skipped (expected, self-healing state); and any
  * other append failure only warns — this is a best-effort capability grant, not a boot-blocking
- * requirement (mirrors ttyd-index-setup.ts's degrade-never-crash contract for its own optional
- * Cmd+Click feature).
+ * requirement — the same degrade-never-crash contract every other optional capability grant in
+ * this codebase follows.
  * @remarks Called at boot (`bootstrap/index.ts`) AND after every successful `newSession`.
  * `terminal-features` is server-global, not session-scoped, but scope does not decide the call
  * site: tmux never auto-starts a server for `show`/`set`, so the boot-time call fails whenever

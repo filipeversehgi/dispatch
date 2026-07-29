@@ -481,8 +481,9 @@ export default tseslint.config(
 
   /**
    * The exec chokepoint (argv-array, no-shell) is the app's shell-injection guard; this ban
-   * closes the bypass surface at build time. The allow-list is the AUDIT-01 ruling verbatim —
-   * the three CARVE-OUT files plus the chokepoint itself — author narrow, never widen.
+   * closes the bypass surface at build time. The allow-list is four files total: the chokepoint
+   * itself, the two AUDIT-01 carve-outs (`ttyd.ts`, `cli.ts`), and the Phase-74 `cloudflared.ts`
+   * extension — author narrow, never widen.
    * @see docs/standards/architecture.md#exec-chokepoint-rulings
    */
   {
@@ -512,7 +513,6 @@ export default tseslint.config(
       "src/server/adapters/exec.ts",
       "src/server/adapters/ttyd.ts",
       "src/server/adapters/cloudflared.ts",
-      "src/server/bootstrap/ttyd-index-setup.ts",
       "src/server/bootstrap/cli.ts",
     ],
     rules: { "no-restricted-imports": "off" },
