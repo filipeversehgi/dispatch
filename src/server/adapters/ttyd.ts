@@ -23,6 +23,29 @@ const escapeRegExp = (s: string): string =>
   s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
+ * Ownership arm that survives ttyd's proctitle rewrite. ttyd overwrites its own argv buffer at
+ * startup (rendering `-t key=value` as `-t key value`), and when an earlier token is large enough
+ * to fill that fixed buffer the TRAILING command is dropped outright — a pre-2.7.0 ttyd carrying
+ * the retired multi-KB theme JSON shows no `tmux attach` in `ps` at all, empirically confirmed
+ * against ttyd 1.7.7. Such a process matched neither the `tmux`+`attach` arm nor the
+ * current-revision arm, so it was never swept AND never adopted: it leaked across every restart
+ * and upgrade, holding its port and serving its session from the retired patched index forever.
+ * `-b /sessions/<cardId>/terminal` is early enough to always survive the rewrite and is specific
+ * enough to be dispatch's own. This widens the SWEEP arm ONLY — `compatible` still demands the
+ * exact current revision key, because a re-adoption fingerprint may only ever narrow.
+ * @see docs/ARCHITECTURE.md#terminal-ttyd
+ */
+const DSP_BASE_PATH_RE = /(?:^|\s)-b\s+\/sessions\/[^\s/]+\/terminal(?:\s|$)/;
+
+/**
+ * `ps -axww` prints each process's FULL command line, and a leaked pre-2.7.0 ttyd contributes
+ * ~140KB of retired theme JSON on its own. Node's 1 MiB `execFile` default is therefore reachable
+ * on a machine that has accumulated a handful of them — and the failure is self-reinforcing, since
+ * a scan that throws sweeps nothing, which leaks another ttyd, which enlarges the next scan.
+ */
+const PS_MAX_BUFFER = 64 * 1024 * 1024;
+
+/**
  * Boundary-anchored matcher for the current revision inside a ttyd proctitle. A bare substring
  * `includes` of the retained key would also fire on a future revision 40–49 (`…REVISION_4` is a
  * prefix of `…REVISION_40`), silently adopting a process spawned by an incompatible runtime
@@ -400,18 +423,23 @@ export function killTtyd(session: string): void {
  * sweep, split out so a non-destructive caller (`uninstall --dry-run`) can COUNT orphans without
  * killing them.
  *
- * Fingerprint (RESEARCH Probe 2/3): match iff basename(argv[0]) === "ttyd" AND either argv includes
- * "tmux" + "attach" or the command has Dispatch's exact current revision marker. The original
- * tmux fingerprint remains unchanged for legacy processes; the marker is the stronger ownership
- * proof for current processes because macOS ttyd truncates the rewritten proctitle before the
- * trailing command once the full theme JSON reaches its fixed buffer. The basename check excludes
- * the backend's own node/ps/shell commands that merely mention "ttyd" (Pitfall 1); a generic
- * full-command-line substring match would self-match the backend (Pitfall 2), so only the exact
- * fixed marker is accepted. Own pid/ppid are skipped explicitly. Tolerant: `ps` failure returns an
- * empty list, never crashes boot.
- * @remarks TERM-01 / RESIL-01 orphan sweep: keep the fingerprint EXACT — broadening it
- * over-matches a non-dsp ttyd/user process (denial of service). SECURITY: callers report the
- * COUNT only — never these PIDs or any argv (T-04-04 precedent).
+ * Fingerprint (RESEARCH Probe 2/3): match iff basename(argv[0]) === "ttyd" AND the command has
+ * argv "tmux" + "attach", OR Dispatch's exact current revision marker, OR Dispatch's
+ * `-b /sessions/<cardId>/terminal` base path. The basename check excludes the backend's own
+ * node/ps/shell commands that merely mention "ttyd" (Pitfall 1); a generic full-command-line
+ * substring match would self-match the backend (Pitfall 2), so only exact fixed markers are
+ * accepted. Own pid/ppid are skipped explicitly.
+ * @remarks The base-path arm exists because the other two both miss a leaked pre-2.7.0 ttyd: its
+ * multi-KB theme JSON fills ttyd's proctitle buffer so the trailing `tmux attach` is dropped from
+ * `ps` entirely, and its revision marker is by definition not the current one. Such a process was
+ * neither swept nor adopted and leaked across every restart forever — see `DSP_BASE_PATH_RE`.
+ * @remarks TERM-01 / RESIL-01 orphan sweep: keep every arm EXACT — a loose arm over-matches a
+ * non-dsp ttyd/user process (denial of service). Widen the SWEEP arms only when a real ownership
+ * token is provably missed; `compatible` (re-adoption) may only ever narrow. SECURITY: callers
+ * report the COUNT only — never these PIDs or any argv (T-04-04 precedent).
+ * @remarks A `ps` failure is tolerated (empty sets, never crashes boot) but is LOUD: silently
+ * returning empty disables sweep and re-adoption wholesale, which is indistinguishable from a
+ * clean machine and was how the leak above stayed invisible.
  * @see docs/ARCHITECTURE.md#terminal-ttyd
  * @see docs/ARCHITECTURE.md#security-threat-model
  */
@@ -439,8 +467,14 @@ async function scanDspTtydProcesses(): Promise<{
 }> {
   let out: string;
   try {
-    ({ stdout: out } = await execFileP("ps", ["-axww", "-o", "pid=,command="]));
-  } catch {
+    ({ stdout: out } = await execFileP("ps", ["-axww", "-o", "pid=,command="], {
+      maxBuffer: PS_MAX_BUFFER,
+    }));
+  } catch (err) {
+    console.error(
+      "[ttyd] process scan failed — orphan sweep and re-adoption skipped this pass:",
+      err instanceof Error ? err.message : String(err),
+    );
     return { candidates: new Set(), compatible: new Set() };
   }
   const candidates = new Set<number>();
@@ -455,7 +489,8 @@ async function scanDspTtydProcesses(): Promise<{
     const hasCurrentRevision = REVISION_RETAINED_KEY_RE.test(m[2]);
     if (
       !(argv.includes("tmux") && argv.includes("attach")) &&
-      !hasCurrentRevision
+      !hasCurrentRevision &&
+      !DSP_BASE_PATH_RE.test(m[2])
     )
       continue;
     candidates.add(pid);

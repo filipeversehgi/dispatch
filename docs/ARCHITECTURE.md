@@ -434,6 +434,20 @@ an older, pre-retirement dispatch build no longer matches `compatible` and is sw
 adopted on the first restart after this ships, a deliberate one-time degradation, never a
 regression).
 
+**A pre-2.7.0 ttyd is only sweepable because of the base-path arm (`TERM-05`).** The paragraph
+above understated the problem when it shipped: ttyd rewrites its own argv buffer at startup
+(rendering `-t key=value` as `-t key value`), and when an earlier token is large enough to fill
+that fixed buffer the **trailing command is dropped from `ps` outright** — empirically confirmed
+against ttyd 1.7.7 with a ~140KB `-t`. A pre-2.7.0 ttyd carries exactly such a token (the retired
+theme JSON), so it shows no `tmux attach` at all, and its revision marker is by definition not the
+current one. It therefore matched NEITHER sweep arm and could never be adopted: it leaked across
+every restart and upgrade, holding its port and serving its session from the retired patched index
+indefinitely, while a second ttyd was spawned alongside it for the same card. Ownership must
+therefore never depend on trailing argv surviving. `-b /sessions/<cardId>/terminal` is early enough
+to always survive the rewrite and specific enough to be dispatch's own, and is matched as a third
+SWEEP arm. Re-adoption (`compatible`) is unchanged and still demands the exact current revision
+key — a re-adoption fingerprint may only ever narrow.
+
 **`tmux -u` is load-bearing, not decorative (`TERM-04`).** The attaching tmux client inherits the
 backend's environment, and tmux otherwise derives its UTF-8 mode from `LANG`/`LC_ALL`/`LC_CTYPE`. A
 launchd-started dispatch service is handed a minimal environment with no locale at all, and a
@@ -1292,7 +1306,8 @@ disableLeaveAlert=true -t DISPATCH_TTYD_REVISION_<revision>=1 tmux -u attach -t 
    mandatory — see `TERM-04`); port
    parsed from stderr `Listening on port: N`; loopback bind mandatory; orphan-sweep ownership proof
    (`basename(argv0)==="ttyd"` AND argv includes `tmux`+`attach`, OR the process title contains the
-   exact retained-key revision literal); exact-current retained-key revision marker required for
+   exact retained-key revision literal, OR it carries `-b /sessions/<cardId>/terminal` — the arm
+   that survives ttyd's proctitle rewrite, `TERM-05`); exact-current retained-key revision marker required for
    adoption/spare (the sole re-adoption fingerprint); iframe src `/sessions/${card.id}/terminal/`
    (same-origin, forwarded by the reverse-proxy — `@see` [Terminal (ttyd)](#terminal-ttyd)).
 7. **DISPATCH_STATUS marker protocol.** `parse.ts` `MARKER_RE` and the kickoff wording in `kickoff.ts` must
