@@ -1413,16 +1413,41 @@ script can be injected into the served terminal page — see [Terminal ttyd](#te
 realistic script-injection vector into the iframe's JS context. This is the same class of
 single-user-loopback-bounded risk already accepted at `T-01-05c`.
 
-### Deferred: tmux `mouse on` for calibrated mobile scroll
+### Closed: mobile scroll does not depend on tmux `mouse on`
 
-The native client's kinetic scroll accumulator is calibrated to tmux's DEFAULT
-`WheelUpPane -> send-keys -X -N 5` binding (`TERM-03`, [Terminal ttyd](#terminal-ttyd)). Mobile
-kinetic scroll therefore depends on the target pane actually having tmux mouse reporting on;
-dispatch deliberately does NOT set tmux `mouse on` globally — that decision stays deferred because
-it changes selection/copy behavior for every existing session, a bigger tradeoff than this slice's
-scope. The `mouseTrackingMode` gate makes the whole wheel path a silent no-op whenever mouse
-reporting is off, so the deferral degrades to "no kinetic scroll in that pane" rather than a
-mis-scroll — safe, not broken. This is an OPEN deferral, not a closed ruling.
+This subsection previously claimed mobile kinetic scroll depends on the target pane having tmux
+mouse reporting on — that premise is MEASURED FALSE. With `set -g mouse off` and Claude Code
+running, the attached client still received `?1000h ?1002h ?1003h ?1006h`: tmux forwards the PANE
+APP's own mouse mode to the client regardless of tmux's own `mouse` option. `scrollMode()`
+(`TERM-03`, [Terminal ttyd](#terminal-ttyd)) therefore returns `"report"` for every dispatch user
+running Claude Code, `mouse on` or not, and with `mouse off` tmux does not run its own wheel
+bindings either — the report still reaches Claude Code. One line per report is universal, not
+config-dependent, so this deferral is CLOSED on a false premise rather than still open. The still-true
+part survives unrelated to scroll: dispatch deliberately does not set tmux `mouse on` globally,
+because that changes selection/copy behavior for every existing session — that choice simply has no
+bearing on mobile scroll. The `mouseTrackingMode` gate still makes the wheel path a silent no-op in
+the one case where reporting genuinely is off (a bare shell prompt, no app mouse mode requested), so
+that residual case degrades to "no kinetic scroll" rather than a mis-scroll — safe, not broken.
+
+### Touch selection in Claude Code REPL prompts already works
+
+A single SGR left-click report on a REPL option row both SELECTS and CONFIRMS it in one tap —
+verified twice on a live `/model` list against `claude` 2.1.220 under tmux 3.6a, with the probe's
+side effect fully reverted each time. A wheel report on the same list changes nothing (wheel is
+scroll only, never selection). No on-screen arrow/Enter key affordance is needed for REPL selection
+prompts, and none should be added on the assumption that taps do not work — the only control on the
+terminal page remains the zoom chip.
+
+Two bounded caveats. First, prompts Claude Code shows BEFORE entering its main REPL — the "Is this a
+project you trust?" gate, the first-run theme picker — run with `mouse_any_flag=0` and IGNORE
+clicks; measured: an injected click had no effect while `Up`/`Down` moved the selection, so those
+prompts are keyboard-only on mobile. Second, at 60% zoom a terminal row is only ~11 px tall, so
+hitting the intended option in a list on a phone is a precision problem, not a plumbing one. Also
+note xterm's `mousedown` handler calls `this.focus()`, so every tap summons the iOS keyboard and may
+occlude part of the prompt — pre-existing behavior, recorded here so it is not misdiagnosed as a tap
+failure. The one inferred (not device-verified) link in this chain: whether iOS Safari synthesizes
+`mousedown` from a tap inside the sandboxed same-origin terminal iframe is established by code
+reading and spec, not confirmed on a real device.
 
 ### Phase 73 CR-01 — Loopback Classifier Is Host-Header-Based — CLOSED (Phase 74)
 
