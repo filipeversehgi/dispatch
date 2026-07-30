@@ -10,6 +10,7 @@ import type {
   EventType,
   PreviewInfo,
   PrInfo,
+  ProbeUnknown,
   SessionFields,
   SourceIssue,
   StartError,
@@ -760,6 +761,43 @@ class BoardStore extends EventEmitter {
   }
 
   /**
+   * Record (or clear, passing `null`) this tick's PR-probe failure category, ONLY if the card
+   * still names `session` as its tmux session — the `setPrsIfSession` precedent. The session guard
+   * runs INSIDE the mutation queue for the same reason: a Done-drag teardown enqueued during the
+   * detection window must win over a probe result that started before the drop. No-op if the id is
+   * unknown.
+   */
+  setPrsUnknownIfSession(
+    id: string,
+    session: string,
+    unknown: ProbeUnknown | null,
+  ): Promise<void> {
+    return this.enqueue(() => {
+      const card = this.cards.get(id);
+      if (card?.tmuxSession === session) card.prsUnknown = unknown ?? undefined;
+      return [];
+    });
+  }
+
+  /**
+   * Record (or clear, passing `null`) this tick's preview-probe failure category, ONLY if the card
+   * still names `session` as its tmux session — byte-for-byte the `setPrsUnknownIfSession` shape,
+   * consumed starting in Plan 05. No-op if the id is unknown.
+   */
+  setPreviewsUnknownIfSession(
+    id: string,
+    session: string,
+    unknown: ProbeUnknown | null,
+  ): Promise<void> {
+    return this.enqueue(() => {
+      const card = this.cards.get(id);
+      if (card?.tmuxSession === session)
+        card.previewsUnknown = unknown ?? undefined;
+      return [];
+    });
+  }
+
+  /**
    * Latch the session as hook-routed for channel selection: the ISO timestamp of its first
    * authenticated hook event. Write-once per session by service-side guard — the store stays
    * policy-free (no throttling, no read-before-write here). Mirrors setOutputChanged: a
@@ -934,7 +972,9 @@ class BoardStore extends EventEmitter {
       card.ttydPort = undefined;
       card.terminalError = null;
       card.prs = undefined;
+      card.prsUnknown = undefined;
       card.previews = undefined;
+      card.previewsUnknown = undefined;
       this.clearHookToken(card);
       return wasTransition
         ? [
@@ -1193,7 +1233,9 @@ class BoardStore extends EventEmitter {
       card.ttydPort = undefined;
       card.terminalError = null;
       card.prs = undefined;
+      card.prsUnknown = undefined;
       card.previews = undefined;
+      card.previewsUnknown = undefined;
       this.clearHookToken(card);
       card.resumeError =
         "Resume failed — the worktree may be gone. Use Restart to begin a fresh session in the same branch.";
@@ -1210,8 +1252,9 @@ class BoardStore extends EventEmitter {
    * and make the DetailPanel render the destructive "Terminal disconnected" block on a card whose
    * cleanup should surface only this muted warning. `terminalError` is nulled for the same reason;
    * only the worktree/folder outcome is uncertain on this path, so `workspacePath` is left as-is.
-   * `hookToken` is cleared AND unregistered with the session fields (clearHookToken). `prs` is
-   * cleared alongside the other session fields. Column untouched. No-op if the id is
+   * `hookToken` is cleared AND unregistered with the session fields (clearHookToken). `prs` and
+   * `previews`, plus their `prsUnknown`/`previewsUnknown` companions, are cleared alongside the
+   * other session fields. Column untouched. No-op if the id is
    * unknown. Bumps `cleanupAttempt` — this is one of the four terminal cleanup branches.
    */
   recordCleanupWarning(id: string, warning: string): Promise<void> {
@@ -1225,7 +1268,9 @@ class BoardStore extends EventEmitter {
       this.clearHookToken(card);
       card.claudeSessionId = undefined;
       card.prs = undefined;
+      card.prsUnknown = undefined;
       card.previews = undefined;
+      card.previewsUnknown = undefined;
       card.cleanupAttempt = (card.cleanupAttempt ?? 0) + 1;
       return [
         this.event("cleanup", {
@@ -1243,7 +1288,8 @@ class BoardStore extends EventEmitter {
    * completeStart precedent — a split write would broadcast a torn frame). Clears the session
    * fields the teardown removed AND neutralizes any lingering/racing error chrome so the cleaned
    * Done card reads quietly: `tmuxSession`/`ttydPort`/`workspacePath`/`cleanupWarning`/`hookToken`/
-   * `prs`/`previews` undefined (the token also unregistered via clearHookToken),
+   * `prs`/`prsUnknown`/`previews`/`previewsUnknown` undefined (the token also unregistered via
+   * clearHookToken),
    * `sessionLost` false, `terminalError` null. KEEPS `branch` (branches always survive per lock),
    * `outputChangedAt`, and `lastMarker`. Bumps `cleanupAttempt` (deliberately NOT one of the fields
    * cleared here — it must survive as the counter's whole point) — this is one of the four terminal
@@ -1263,7 +1309,9 @@ class BoardStore extends EventEmitter {
       this.clearHookToken(c);
       c.claudeSessionId = undefined;
       c.prs = undefined;
+      c.prsUnknown = undefined;
       c.previews = undefined;
+      c.previewsUnknown = undefined;
       c.cleanupAttempt = (c.cleanupAttempt ?? 0) + 1;
       return [
         this.event("cleanup", { cardId: id, fromCol: "done", toCol: "done" }),

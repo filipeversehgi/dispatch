@@ -78,6 +78,32 @@ export interface PreviewInfo {
   url: string;
 }
 
+/**
+ * The fixed set of reasons a probe (PR lookup or preview scan) could not complete this tick.
+ * Closed union only — never a free-form string — so a category can never carry raw tool stderr,
+ * a repo path, or a branch name across the wire (T-76-01).
+ */
+export type ProbeFailureCategory =
+  | "gh unavailable"
+  | "gh not authenticated"
+  | "gh pr list failed"
+  | "detection unavailable";
+
+/**
+ * A probe's "could not check" state for one signal. NON-SECRET: rides `snapshot()` UNREDACTED
+ * exactly like `prs`/`previews`/`hookRoutedAt` — the only thing that ever crosses the wire is
+ * `category`, itself a closed `ProbeFailureCategory` enum, never the raw `gh`/`lsof`/pane stderr
+ * the log-once latch in `adapters/gh.ts` already keeps content-free (T-04-04). Absence of this
+ * field means the corresponding signal (`prs`/`previews`) is trustworthy as-is — either it has
+ * data or the last check confirmed it genuinely empty.
+ * @remarks T-76-01 (Information Disclosure): `category` is typed as the fixed
+ * `ProbeFailureCategory` union so no free-form failure text can ever be assigned to it.
+ * @see docs/ARCHITECTURE.md#security-threat-model
+ */
+export interface ProbeUnknown {
+  category: ProbeFailureCategory;
+}
+
 export interface Card {
   /** Internal card id (can equal issueId in Phase 1). */
   id: string;
@@ -131,6 +157,15 @@ export interface Card {
    */
   prs?: PrInfo[];
   /**
+   * Set when the most recent PR-probe tick for this card's branch FAILED for at least one repo in
+   * `card.workspace.repos`, so `prs` could not be fully trusted this tick. NON-SECRET: rides
+   * `snapshot()` UNREDACTED like `prs`/`previews`/`hookRoutedAt`. Absent means the last check
+   * either succeeded with data or was confirmed genuinely empty — never overloads `undefined` to
+   * mean both "never checked" and "confirmed none". Set on the first failed check, cleared on the
+   * next success, and cleared by every session-teardown path that also clears `prs`.
+   */
+  prsUnknown?: ProbeUnknown;
+  /**
    * Dev-server port(s) detected inside this card's session process tree, excluding the card's own
    * `ttydPort`. Group-card-only by construction, same rationale as `prs`. NON-SECRET: rides
    * `snapshot()` UNREDACTED. Absent (not `[]`) when nothing is listening, cleared with the other
@@ -138,6 +173,14 @@ export interface Card {
    * @see docs/ARCHITECTURE.md#dev-server-preview-detection
    */
   previews?: PreviewInfo[];
+  /**
+   * Set when the most recent preview-probe tick for this card's session FAILED, so `previews`
+   * could not be fully trusted this tick. NON-SECRET: rides `snapshot()` UNREDACTED, same rationale
+   * as `prsUnknown`. Absent means the last check either succeeded with data or was confirmed
+   * genuinely empty. Set on the first failed check, cleared on the next success, and cleared by
+   * every session-teardown path that also clears `previews`. Consumed starting in Plan 05.
+   */
+  previewsUnknown?: ProbeUnknown;
   /** tmux session name hosting the claude REPL. */
   tmuxSession?: string;
   /**
