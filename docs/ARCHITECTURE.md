@@ -1353,6 +1353,19 @@ configured (F-01) and skipped an entire detection tick on any Linear fetch failu
 network blip, bad credentials (F-02) — collapsing "could not check" into "looks like nothing is
 there" for reasons that have nothing to do with `gh`/`lsof`/pane health.
 
+**The PR fan-out backs off on total failure; the loop's cadence does not.** A card with two repos
+issues one authenticated `gh pr list` per repo every 10s, so a dropped connection or GitHub secondary
+rate limiting used to retry at full rate while every retry drove the `RESIL-02` counter toward wiping
+the card's PR state — and the raised call rate made throttling likelier to begin with. A tick where
+NO repo answered now arms a per-card retry deadline that doubles from the 10s cadence up to 60s,
+cleared the moment any repo answers. It is deliberately not `poller.ts`'s whole-loop backoff: the
+same tick runs the local `tmux`/`ps`/`lsof` preview scan whose measured port-change latency (F-08)
+depends on the 10s cadence, so slowing everything because GitHub is unreachable would reopen a closed
+finding. Partial failure never backs off, so a workspace holding one permanently unresolvable repo
+keeps polling its healthy siblings at full cadence. While a card is backed off its PR block is
+skipped entirely and `prsUnknown` is left standing — nothing was re-checked, so nothing may claim to
+have been.
+
 **The single-flight guard is retained for future callers, and enforces nothing today.** The loop arms
 its next timer only in the awaited tick's `finally`, so a slow tick delays the following one instead
 of overlapping it — the timer path cannot re-enter `detectCardArtifacts`, and it is the only caller.

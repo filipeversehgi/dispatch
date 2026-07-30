@@ -33,8 +33,36 @@ const PREVIEW_PROBE_TIMEOUT_MS = 500;
  */
 const PROBE_FAILURE_CEILING = 3;
 
+/**
+ * Exponential backoff bounds for retrying a card's PR fan-out after a tick in which NO repo
+ * answered, doubling from `ARTIFACT_DETECT_INTERVAL_MS` up to `PR_RETRY_MAX_MS`.
+ *
+ * @remarks
+ * The 10s cadence exists for the healthy path's recovery latency (F-08), but it also means a
+ * card with two repos issues one authenticated `gh pr list` per repo every 10s — 12/min per card,
+ * unchanged whether `gh` has failed once or a hundred times in a row. A dropped connection or
+ * GitHub secondary rate limiting therefore retried at full rate while every retry drove the
+ * `RESIL-02` counter toward wiping the card's PR state, and the raised call rate made throttling
+ * likelier in the first place: the cadence fed the mechanism that destroyed the signal.
+ *
+ * Only the PR fan-out backs off — deliberately NOT the loop's own delay, the way `poller.ts` does
+ * it. The tick also runs the local `tmux`/`ps`/`lsof` preview scan, whose ~5s worst-case
+ * port-change latency was measured against this cadence (F-08); slowing the whole loop because
+ * GitHub is unreachable would regress a closed finding to fix an unrelated one. Backoff engages
+ * only when NO repo answered, so a workspace with one permanently unresolvable repo (the everyday
+ * multi-account case) keeps polling its healthy siblings at full cadence, and any repo answering
+ * resets the delay immediately.
+ */
+const PR_RETRY_MAX_MS = 60_000;
+
 /** Consecutive PR-probe tool-failure count per card id, pruned every tick to live sessions. */
 const prFailureCounts = new Map<string, number>();
+
+/**
+ * Earliest epoch ms at which a card's PR fan-out may run again, set only after a tick in which no
+ * repo answered. Pruned every tick to live sessions, like the counter maps.
+ */
+const prRetryNotBefore = new Map<string, number>();
 
 /** Consecutive preview-probe tool-failure count per card id, pruned every tick to live sessions. */
 const previewFailureCounts = new Map<string, number>();
@@ -127,7 +155,9 @@ async function detectCardArtifacts(backendPort: number): Promise<void> {
  * write entirely below `PROBE_FAILURE_CEILING` (last-known-good survives a blip) and lets the
  * empty `finalPrs` through at or above it, so a totally dead probe cannot leave a stale PR on the
  * board forever. Both the `prs` and `prsUnknown` writes carry their own write-skip diff so an
- * unchanged tick never rebroadcasts.
+ * unchanged tick never rebroadcasts. A tick where no repo answered also arms `prRetryNotBefore`
+ * (see `PR_RETRY_MAX_MS`), which skips the whole PR block on later ticks until the backoff expires
+ * — `prsUnknown` is deliberately left standing while skipping, since nothing has been re-checked.
  *
  * Preview exclusion (F-09) is a `Set<number>` built ONCE per tick — `backendPort` plus every live
  * card's `ttydPort` — rather than checking only the current card's own field, so a stale, freed
@@ -164,7 +194,11 @@ async function runArtifactDetection(backendPort: number): Promise<void> {
     cards.map(async (card) => {
       const session = card.tmuxSession as string;
 
-      if (card.branch != null && card.workspace != null) {
+      if (
+        card.branch != null &&
+        card.workspace != null &&
+        Date.now() >= (prRetryNotBefore.get(card.id) ?? 0)
+      ) {
         const branch = card.branch;
         const repos = card.workspace.repos;
         const results = await Promise.all(
@@ -190,8 +224,21 @@ async function runArtifactDetection(backendPort: number): Promise<void> {
           }
           holdLastKnownPrs =
             answered.length === 0 && count < PROBE_FAILURE_CEILING;
+          if (answered.length === 0) {
+            prRetryNotBefore.set(
+              card.id,
+              Date.now() +
+                Math.min(
+                  ARTIFACT_DETECT_INTERVAL_MS * 2 ** count,
+                  PR_RETRY_MAX_MS,
+                ),
+            );
+          } else {
+            prRetryNotBefore.delete(card.id);
+          }
         } else {
           prFailureCounts.delete(card.id);
+          prRetryNotBefore.delete(card.id);
           if (card.prsUnknown != null) {
             await store.setPrsUnknownIfSession(card.id, session, null);
           }
@@ -245,6 +292,9 @@ async function runArtifactDetection(backendPort: number): Promise<void> {
   const liveIds = new Set(store.cardsWithSession().map((c) => c.id));
   for (const id of prFailureCounts.keys()) {
     if (!liveIds.has(id)) prFailureCounts.delete(id);
+  }
+  for (const id of prRetryNotBefore.keys()) {
+    if (!liveIds.has(id)) prRetryNotBefore.delete(id);
   }
   for (const id of previewFailureCounts.keys()) {
     if (!liveIds.has(id)) previewFailureCounts.delete(id);
