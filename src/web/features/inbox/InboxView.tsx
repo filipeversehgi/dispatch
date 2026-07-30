@@ -3,6 +3,7 @@ import type { BoardSnapshot } from "../../../shared/types.js";
 import { moveCard } from "../../lib/api.js";
 import { Button } from "../../primitives/Button.js";
 import { Glyph } from "../../primitives/Glyph.js";
+import { isInboxWaiting } from "../board/index.js";
 import { InboxToolbar } from "./InboxToolbar.js";
 import { InboxRow } from "./InboxRow.js";
 import { inboxProjectOptions, matchesSearch } from "./inbox-filters.js";
@@ -44,7 +45,7 @@ export function InboxView({
   const [promotedIds, setPromotedIds] = useState<Set<string>>(new Set());
 
   const inboxCards = board.cards
-    .filter((c) => c.column === "inbox" && !promotedIds.has(c.id))
+    .filter((c) => isInboxWaiting(c) && !promotedIds.has(c.id))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 
   const projectOptions = inboxProjectOptions(board.cards);

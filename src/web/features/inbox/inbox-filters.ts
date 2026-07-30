@@ -1,10 +1,10 @@
 import type { Card, FilterOption } from "../../../shared/types.js";
+import { isInboxWaiting } from "../board/index.js";
 
 export function inboxProjectOptions(cards: Card[]): FilterOption[] {
   const byId = new Map<string, string>();
   for (const c of cards) {
-    if (c.column === "inbox" && c.project)
-      byId.set(c.project.id, c.project.name);
+    if (isInboxWaiting(c) && c.project) byId.set(c.project.id, c.project.name);
   }
   return [...byId]
     .map(([id, label]) => ({ id, label }))

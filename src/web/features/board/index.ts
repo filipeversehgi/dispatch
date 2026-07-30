@@ -4,5 +4,5 @@ export { PRIORITY_DOT } from "./CardView.js";
 export { COLUMN_ACCENT, COLUMN_LABELS } from "./column-meta.js";
 export { SINGLE_LINE_COPY } from "./EmptyState.js";
 export { membersOf } from "./group-members.js";
-export { inboxWaitingCount } from "./inbox-count.js";
+export { inboxWaitingCount, isInboxWaiting } from "./inbox-count.js";
 export { MemberRow } from "./MemberRow.js";
