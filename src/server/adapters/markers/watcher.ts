@@ -100,6 +100,19 @@ const captureFailures = new Map<string, number>();
  * leave such a card with no marker scan, no flip-back and no activity dot for the rest of its life.
  * Erring the other way costs at most a brief overlap where both channels are live, which
  * `lastMarker` dedup and the single-writer queue already absorb.
+ * @remarks A tick spans several awaits (the pane capture, the lazy size probe, the dot stamp) and
+ * `card` is the store's LIVE Map entry, so the hooks channel can mutate it after `decideScan` has
+ * already ruled on a now-stale pair of inputs. The dangerous shape is a hook-driven `flipBack` out
+ * of `agent_done`/`in_review`, which clears `lastMarker` — the level-triggered scan's only defence
+ * against re-firing a marker that is still physically on the pane — so the tick would re-apply the
+ * consumed DONE and snap the card the user just re-prompted straight back to Agent Done with a
+ * stale summary. Re-comparing the card's `column` and `lastMarker` against the values the decision
+ * was computed from, immediately before dispatching, makes the mutation compare-and-swap: a
+ * changed card skips this tick and the next one re-decides from the new state. The per-session
+ * baselines are still written back, because they describe the pane, not the card. This guard
+ * stands on its own — it must not be traded away on the assumption that the channel gate above
+ * already excludes hook-routed sessions, since under `auto` a session is pane-routed until its
+ * first hook event proves otherwise.
  * @remarks (`WR-05`) The `applyMarker` case derives its `eventType` from `decision.column` with a
  * ternary — the one place that derivation survives, because `scan-decision.ts`'s `Decision` type
  * is replay-frozen and carries no event-type field of its own. This I/O shell is where the frozen
@@ -202,30 +215,35 @@ async function scanSession(
     }
   }
 
-  switch (decision.kind) {
-    case "nothing":
-    case "setOutputChanged":
-      break;
-    case "clearLastMarker":
-      await store.clearLastMarker(card.id);
-      break;
-    case "applyMarker": {
-      const eventType =
-        decision.column === "needs_input"
-          ? "status_needs_input"
-          : "status_agent_done";
-      await store.applyMarker(
-        card.id,
-        decision.column,
-        decision.reason,
-        decision.key,
-        eventType,
-      );
-      break;
+  const decisionInputsStillLive =
+    card.column === input.column && card.lastMarker === input.lastMarker;
+
+  if (decisionInputsStillLive) {
+    switch (decision.kind) {
+      case "nothing":
+      case "setOutputChanged":
+        break;
+      case "clearLastMarker":
+        await store.clearLastMarker(card.id);
+        break;
+      case "applyMarker": {
+        const eventType =
+          decision.column === "needs_input"
+            ? "status_needs_input"
+            : "status_agent_done";
+        await store.applyMarker(
+          card.id,
+          decision.column,
+          decision.reason,
+          decision.key,
+          eventType,
+        );
+        break;
+      }
+      case "flipBack":
+        await store.flipBack(card.id);
+        break;
     }
-    case "flipBack":
-      await store.flipBack(card.id);
-      break;
   }
 
   if (next.flip) sessions.set(session, next.flip);

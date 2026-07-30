@@ -1296,6 +1296,16 @@ entirely. The pure decision core (`scan-decision.ts`, `pane-view.ts`, `parse.ts`
 corpus are untouched — the replay harness imports only the pure core, so replay 16/16 is a
 structural property of this seam.
 
+The gate is a routing decision, NOT a concurrency guard. A tick spans several awaits and reads the
+store's live card entry, so the hooks channel can mutate the card between the decision and its
+dispatch — and a hook `flipBack` out of `agent_done`/`in_review` clears `lastMarker`, removing the
+level-triggered scan's only defence against a marker still sitting on the pane. `scanSession`
+therefore re-compares the card's `column` and `lastMarker` against the values the decision was
+computed from, immediately before applying it, and skips the tick when either moved; the
+per-session pane baselines are still written back because they describe the pane, not the card.
+That check is independent of the gate and must stay so: under `auto` a session is pane-routed until
+its first hook event, so both channels really can be live at once.
+
 **Two-layer pane suppression.** `statusChannel: "pane"` restores today's scraping exactly through
 two independent guards: (1) the injection gate in `steps.ts`/`resume-session.ts`
 (`runtime?.capable && runtime.statusChannel !== "pane"`) launches sessions byte-identical to the

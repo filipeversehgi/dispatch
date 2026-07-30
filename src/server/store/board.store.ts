@@ -1112,7 +1112,16 @@ class BoardStore extends EventEmitter {
    * against the still-standing key at `applyMarker`'s guard and the card could never repeat the
    * flip. The clearing is keyed on the PRE-mutation source column, never the target, so the two
    * edges' behavior can never accidentally swap.
+   * @remarks Clearing the key has a CROSS-MODULE consequence the store cannot see: `lastMarker` is
+   * also the level-triggered pane watcher's only defence against re-applying a marker whose text
+   * is still on screen, which is precisely why the `needs_input` edge keeps it. A pane tick already
+   * past its channel gate, holding a decision computed before this mutation, would otherwise
+   * re-apply the consumed DONE and drag the card back to Agent Done. `scanSession` therefore
+   * re-checks the card's `column` and `lastMarker` against the values it decided on immediately
+   * before dispatching; do not remove that check on the belief that the channel gate makes it
+   * unnecessary.
    * @see docs/ARCHITECTURE.md#column-transition-specification
+   * @see docs/ARCHITECTURE.md#hooks-status-channel
    */
   flipBack(id: string): Promise<void> {
     return this.enqueue(() => {
