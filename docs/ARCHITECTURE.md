@@ -342,6 +342,20 @@ marked lost, which the user simply Restarts — never destructive to the workspa
 cards get NO dead-session detection: a mid-cleanup kill must never be marked session-lost, because
 the cleanup mutation clears `tmuxSession` moments later anyway.
 
+**Bounded consecutive probe-failure ceiling — 3 consecutive detection-tool failures (`RESIL-02`).**
+The same shape as `RESIL-01`, applied to the artifact-detection probes (`adapters/artifact-detect.ts`):
+a per-card counter increments ONLY on a genuine detection-tool failure — an `{ ok: false }` result
+from `listPrsForBranch` for the PR probe, or a `null` return from
+`panePidsBySession`/`listeningPortsBySession` for the preview probe — never on a
+`confirmReachable`-rejected candidate, which is a successful tick that confirmed zero previews and
+resets the counter instead. The unknown status (`prsUnknown`/`previewsUnknown`) is set on the FIRST
+failure so a silent tooling failure is visible immediately; the underlying data (`prs`/`previews`)
+is left alone below the ceiling — the existing `null`-vs-`[]` staleness contract stays intact for a
+single blip — and is only forced to `[]` once three consecutive failures accrue, so a permanently
+dead probe cannot leave a stale PR or port sitting on the board forever. Both counter maps are
+pruned every tick to `store.cardsWithSession()`'s current ids so a torn-down card's streak can never
+resurrect against a reused id.
+
 **Boot reconcile — persisted-name comparison (`IN-01`).** For every card that still holds a session,
 reconcile compares against the PERSISTED session name (`card.tmuxSession`), falling back to the
 derived `dsp-<identifier>` ONLY when absent. Linear identifiers change when an issue moves teams: the
@@ -1264,12 +1278,16 @@ while `stdout` still carries every other pid's valid records. The rejection's er
 discriminator: `typeof err.code === "number"` with a populated `err.stdout` is a usable result to
 parse; `typeof err.code === "string"` (e.g. `ENOENT`) is the only genuine failure.
 
-**`null` vs `[]` is the entire staleness contract.** `null` means detection failed this tick —
-the caller leaves every card's previous `previews` value untouched, exactly the tolerant-swallow
-discipline `listSessions`/`pidsListeningOnPorts` already established. An empty array means
-detection succeeded and genuinely found nothing — the caller clears the field. Collapsing these
-two into one signal would either wipe a live card's badges on a transient tool hiccup, or wedge a
-dead port's badge on the board forever.
+**`null` vs `[]` is the entire staleness contract, now with a bounded ceiling (`RESIL-02`).** `null`
+means detection failed this tick — the caller leaves every card's previous `previews` value
+untouched, exactly the tolerant-swallow discipline `listSessions`/`pidsListeningOnPorts` already
+established. An empty array means detection succeeded and genuinely found nothing — the caller
+clears the field. Collapsing these two into one signal would either wipe a live card's badges on a
+transient tool hiccup, or wedge a dead port's badge on the board forever. A single `null` tick still
+leaves `previews` alone and immediately raises `previewsUnknown`; only after three CONSECUTIVE
+`null` ticks does `previews` itself get forced to `[]`, so a probe that is genuinely, persistently
+failing cannot leave a dead port advertised indefinitely — see [Resilience and
+Reconcile](#resilience-and-reconcile) for the counter mechanics shared with `RESIL-01`.
 
 **A discovered port is advertised only after a short bare-TCP-connect confirmation (F-07).**
 `confirmReachable` (`adapters/artifact-detect.ts`, mirroring `ttyd.ts`'s `probeAdoption`) opens a

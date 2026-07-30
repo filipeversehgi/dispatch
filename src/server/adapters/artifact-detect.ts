@@ -14,6 +14,29 @@ const ARTIFACT_DETECT_INTERVAL_MS = 10_000;
 /** Bare-TCP-connect confirmation timeout for a single discovered preview port candidate. */
 const PREVIEW_PROBE_TIMEOUT_MS = 500;
 
+/**
+ * Bounded ceiling on consecutive detection-tool failures before a signal stops holding
+ * last-known-good and falls to "could not check" (`RESIL-02`).
+ *
+ * @remarks
+ * The same threshold `RESIL-01` already uses for three consecutive capture failures, applied here
+ * to a second signal. A counter increments ONLY on a genuine detection-tool failure — an
+ * `{ ok: false }` result from `listPrsForBranch`, or a `null` return from
+ * `panePidsBySession`/`listeningPortsBySession` — never on a `confirmReachable`-rejected
+ * candidate, which is a SUCCESSFUL tick that confirmed zero previews and resets the counter
+ * instead. The unknown status is set on the first failure so a silent tooling failure is visible
+ * at once; the data field is cleared only once the ceiling is reached, so a single blip never
+ * wipes last-known-good.
+ * @see docs/ARCHITECTURE.md#resilience-and-reconcile
+ */
+const PROBE_FAILURE_CEILING = 3;
+
+/** Consecutive PR-probe tool-failure count per card id, pruned every tick to live sessions. */
+const prFailureCounts = new Map<string, number>();
+
+/** Consecutive preview-probe tool-failure count per card id, pruned every tick to live sessions. */
+const previewFailureCounts = new Map<string, number>();
+
 let artifactDetectInFlight: Promise<void> | null = null;
 
 /**
@@ -64,21 +87,25 @@ async function detectCardArtifacts(backendPort: number): Promise<void> {
 
 /**
  * @remarks
- * Per-repo PR outcomes (F-03/F-04): a failing repo no longer discards a succeeding sibling's PRs
- * — `next` flattens only the `ok: true` entries, while any `ok: false` entry sets `prsUnknown` to
- * the first failing repo's category. The asymmetry is deliberate: a repo that answers with zero
- * PRs still clears that repo's contribution to `prs`, while a failing repo contributes nothing to
- * `prs` and sets `prsUnknown` — so a card with one succeeding and one failing repo shows both the
- * succeeding repo's PRs AND the unknown badge at once. Both the `prs` and `prsUnknown` writes carry
- * their own write-skip diff so an unchanged tick never rebroadcasts.
+ * Per-repo PR outcomes (F-03/F-04): `next` flattens only the `ok: true` entries, while any
+ * `ok: false` entry sets `prsUnknown` to the first failing repo's category and advances
+ * `prFailureCounts` (`RESIL-02`) — reset to zero on a tick where every repo answers. The `prs`
+ * write is the succeeding repos' data below the ceiling, so a card with one succeeding and one
+ * failing repo shows both the succeeding repo's PRs AND the unknown badge at once; at or above
+ * `PROBE_FAILURE_CEILING` consecutive failing ticks the write is forced to `[]` instead, so a
+ * permanently-failing repo cannot leave a stale PR sitting on the board forever. Both the `prs`
+ * and `prsUnknown` writes carry their own write-skip diff so an unchanged tick never rebroadcasts.
  *
  * Preview exclusion (F-09) is a `Set<number>` built ONCE per tick — `backendPort` plus every live
  * card's `ttydPort` — rather than checking only the current card's own field, so a stale, freed
  * ttyd port picked up moments later by a DIFFERENT card's real dev server can no longer leak into
  * that card's previews. A discovered candidate that survives the exclusion set still needs a
  * `confirmReachable` pass (F-07) before it becomes a `PreviewInfo`; a discovered-but-unreachable
- * port is a SUCCESSFUL tick that found zero confirmed previews (the `[]` case), never a tool
- * failure — only a `null` return from `panePidsBySession`/`listeningPortsBySession` is that.
+ * port is a SUCCESSFUL tick that found zero confirmed previews (the `[]` case) and resets
+ * `previewFailureCounts` (`RESIL-02`) — only a `null` return from
+ * `panePidsBySession`/`listeningPortsBySession` is a genuine tool failure, which advances the
+ * counter for every live-session card, latches `previewsUnknown` on the first failure, and forces
+ * `previews` to `[]` once the ceiling is reached.
  */
 async function runArtifactDetection(backendPort: number): Promise<void> {
   const cards = store.cardsWithSession();
@@ -113,25 +140,54 @@ async function runArtifactDetection(backendPort: number): Promise<void> {
         const failed = results.filter(
           (r): r is Extract<PrProbeResult, { ok: false }> => !r.ok,
         );
-        const next = results
+        let finalPrs = results
           .filter((r): r is Extract<PrProbeResult, { ok: true }> => r.ok)
           .flatMap((r) => r.prs);
-        if (JSON.stringify(card.prs ?? []) !== JSON.stringify(next)) {
-          await store.setPrsIfSession(card.id, session, next);
-        }
+
         if (failed.length > 0) {
+          const count = (prFailureCounts.get(card.id) ?? 0) + 1;
+          prFailureCounts.set(card.id, count);
           const category = failed[0].category;
           if (card.prsUnknown?.category !== category) {
             await store.setPrsUnknownIfSession(card.id, session, {
               category,
             });
           }
-        } else if (card.prsUnknown != null) {
-          await store.setPrsUnknownIfSession(card.id, session, null);
+          if (count >= PROBE_FAILURE_CEILING) finalPrs = [];
+        } else {
+          prFailureCounts.delete(card.id);
+          if (card.prsUnknown != null) {
+            await store.setPrsUnknownIfSession(card.id, session, null);
+          }
+        }
+
+        if (JSON.stringify(card.prs ?? []) !== JSON.stringify(finalPrs)) {
+          await store.setPrsIfSession(card.id, session, finalPrs);
         }
       }
 
-      if (portsBySession == null) return;
+      if (portsBySession == null) {
+        const count = (previewFailureCounts.get(card.id) ?? 0) + 1;
+        previewFailureCounts.set(card.id, count);
+        if (card.previewsUnknown?.category !== "detection unavailable") {
+          await store.setPreviewsUnknownIfSession(card.id, session, {
+            category: "detection unavailable",
+          });
+        }
+        if (
+          count >= PROBE_FAILURE_CEILING &&
+          JSON.stringify(card.previews ?? []) !== "[]"
+        ) {
+          await store.setPreviewsIfSession(card.id, session, []);
+        }
+        return;
+      }
+
+      previewFailureCounts.delete(card.id);
+      if (card.previewsUnknown != null) {
+        await store.setPreviewsUnknownIfSession(card.id, session, null);
+      }
+
       const ports = portsBySession.get(session) ?? [];
       const candidates = ports.filter((port) => !excludedPorts.has(port));
       const reachable = await Promise.all(
@@ -144,6 +200,14 @@ async function runArtifactDetection(backendPort: number): Promise<void> {
       await store.setPreviewsIfSession(card.id, session, next);
     }),
   );
+
+  const liveIds = new Set(store.cardsWithSession().map((c) => c.id));
+  for (const id of prFailureCounts.keys()) {
+    if (!liveIds.has(id)) prFailureCounts.delete(id);
+  }
+  for (const id of previewFailureCounts.keys()) {
+    if (!liveIds.has(id)) previewFailureCounts.delete(id);
+  }
 }
 
 /**
