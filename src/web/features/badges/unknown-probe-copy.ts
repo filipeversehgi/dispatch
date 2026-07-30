@@ -30,6 +30,12 @@ export function unknownProbeCopy(
         label,
         detail: "Could not check — not authenticated for this repo",
       };
+    case "gh repo not accessible":
+      return {
+        label,
+        detail:
+          "Could not check — this repo is not visible to the signed-in gh account, or the remote no longer exists",
+      };
     case "gh unavailable":
       return { label, detail: "Could not check — gh CLI not available" };
     case "gh pr list failed":

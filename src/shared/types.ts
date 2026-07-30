@@ -86,6 +86,7 @@ export interface PreviewInfo {
 export type ProbeFailureCategory =
   | "gh unavailable"
   | "gh not authenticated"
+  | "gh repo not accessible"
   | "gh pr list failed"
   | "detection unavailable";
 

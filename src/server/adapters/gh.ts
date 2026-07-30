@@ -103,10 +103,14 @@ function rollupOf(checks: GhCheckRun[]): "pass" | "fail" | "pending" | null {
  * mask a later, different one. The category now ALSO rides the return value (F-03/F-04) — it does
  * not stop being logged.
  *
- * The `"gh not authenticated"` branch additionally matches the GraphQL
- * `"Could not resolve to a Repository"` substring, captured live on `gh` 2.96.0 against a real
- * repo owned by the machine's inactive `gh` account (F-04) — NOT a bare `NOT_FOUND` token, which
- * also fires for a typo'd remote (a configuration problem, not an authentication one).
+ * The GraphQL `"Could not resolve to a Repository"` substring — captured live on `gh` 2.96.0 against
+ * a real repo owned by the machine's inactive `gh` account (F-04) — gets its OWN category rather
+ * than folding into `"gh not authenticated"`. GitHub returns that identical message for "does not
+ * exist" and "you cannot see it" by design (verified live against a remote pointing at a repository
+ * that genuinely does not exist), so the substring cannot distinguish an auth problem from a
+ * renamed, deleted, or mistyped remote. Sending a user to `gh auth login` to fix a remote URL is
+ * worse than naming both possibilities, so `"gh not authenticated"` is now reserved for the
+ * unambiguous signals — `HTTP 401` and `gh auth login`.
  */
 export async function listPrsForBranch(
   repoPath: string,
@@ -146,11 +150,11 @@ export async function listPrsForBranch(
     const stderr = (err as { stderr?: string }).stderr ?? "";
     const category: ProbeFailureCategory = message.includes("ENOENT")
       ? "gh unavailable"
-      : stderr.includes("HTTP 401") ||
-          stderr.includes("gh auth login") ||
-          stderr.includes("Could not resolve to a Repository")
+      : stderr.includes("HTTP 401") || stderr.includes("gh auth login")
         ? "gh not authenticated"
-        : "gh pr list failed";
+        : stderr.includes("Could not resolve to a Repository")
+          ? "gh repo not accessible"
+          : "gh pr list failed";
     if (!loggedCategories.has(category)) {
       loggedCategories.add(category);
       console.error(`[artifact-detect] ${category}`);
