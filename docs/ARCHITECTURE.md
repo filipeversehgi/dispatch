@@ -20,6 +20,7 @@ sections are scaffolded here and filled by the later Phase 10 migration plans.
 - Cross-Module Invariants
   - [Single Writer Store](#single-writer-store)
   - [Marker Protocol](#marker-protocol)
+  - [Column Transition Specification](#column-transition-specification)
   - [Watcher Discriminator](#watcher-discriminator)
   - [Attention Routing](#attention-routing)
   - [Resilience and Reconcile](#resilience-and-reconcile)
@@ -200,6 +201,55 @@ a CONTRACT BETWEEN THE TWO FILES (do-not-change contract 7). Their separator is 
 change to the tokens (`NEEDS_INPUT`/`DONE`), the placeholders (`<one-line reason>` /
 `<one-line summary>`), or the em-dash on EITHER side silently breaks the protocol on the other side.
 
+### Column Transition Specification
+
+`BOARD-06` is the executable FLOW-01 answer to "every column transition has exactly one owner and
+one intended outcome": a code table (`store/column-transitions.ts`) plus this hand-maintained
+prose table, both carrying the invariant id so the gate can verify presence in both homes without
+requiring the two to be mechanically generated from one another. Fifteen triggers, against their
+legal source column(s), target, and owning code path:
+
+| Trigger                                                      | Source column(s)                                               | Target                               | Owner                                                                                     |
+| ------------------------------------------------------------ | -------------------------------------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------- |
+| Hook `Stop` + `DISPATCH_STATUS: DONE`                        | any except `APPLY_MARKER_EXCLUDED_SOURCES`                     | `agent_done`                         | `hook-events.ts#applyStopEvent` → `board.store.ts#applyMarker`                            |
+| Hook `Stop` + `DISPATCH_STATUS: NEEDS_INPUT`                 | any except `APPLY_MARKER_EXCLUDED_SOURCES`                     | `needs_input`                        | same as above                                                                             |
+| Hook `UserPromptSubmit`                                      | `FLIP_BACK_SOURCES` (`needs_input`, `agent_done`, `in_review`) | `in_progress`                        | `hook-events.ts#applyPromptSubmit` → `board.store.ts#flipBack`                            |
+| Hook `PreToolUse` (pause-class tool)                         | any except `APPLY_MARKER_EXCLUDED_SOURCES`                     | `needs_input`                        | `hook-events.ts#applyPreToolUseEvent` → `applyMarker`                                     |
+| Hook `PostToolUse` (pause-class tool)                        | `FLIP_BACK_SOURCES`                                            | `in_progress`                        | `applyHookEvent`'s `PostToolUse` branch → `flipBack`                                      |
+| Watcher marker decision (pane-parsed)                        | any except `APPLY_MARKER_EXCLUDED_SOURCES`                     | `needs_input` / `agent_done`         | `watcher.ts#scanSession` reading pure `scan-decision.ts#decideScan` → `applyMarker`       |
+| Watcher flip-back decision                                   | `needs_input` ONLY                                             | `in_progress`                        | same path → `flipBack`                                                                    |
+| Manual drag / `POST /cards/:id/move`                         | any (blind set today, no source check)                         | any                                  | `board.store.ts#moveCardManual`, gated by `routes/cards.route.ts`                         |
+| Group member mirroring (fan-out, not an independent trigger) | mirrors the writer that triggered it                           | mirrors the writer that triggered it | `board.store.ts#mirrorMemberColumn`, called from exactly 5 writers                        |
+| Session-lost (3-strike detector, boot reconcile)             | column-preserving                                              | column-preserving                    | `board.store.ts#markSessionLost`                                                          |
+| Resume / resume-failed                                       | column-preserving                                              | column-preserving                    | `board.store.ts#resumeSession` / `#recordResumeFailure`                                   |
+| Cleanup (Done teardown)                                      | column-preserving (already `done`)                             | column-preserving                    | `services/orchestration/cleanup.ts` + store cleanup mutators                              |
+| Card creation                                                | — (new card)                                                   | `todo` or `inbox`                    | `createLocalCard` / `createGroupCard` / `newInboxCard` via `store/mapping.ts#applyIssues` |
+| Boot hydration legacy migration                              | `in_planning` (retired)                                        | `todo` / `in_progress`               | `board.store.ts#hydrateFromParsed`, one-way, skips `mirrorMemberColumn`                   |
+| Start-saga success                                           | any                                                            | `in_progress`                        | `board.store.ts#completeStart` / `#attachExistingSession`                                 |
+
+Conflicts this phase closes, by plan: `flipBack`'s guard covered `needs_input` only (closed in
+Plan 77-01); the Inbox marker-guard hole in `applyMarker` (closed in Plan 77-01, store-side only);
+`moveCardManual`'s blind set into `agent_done` and `todo → in_progress` (closed in Plan 77-02);
+`applyMarker`'s event-type derived from the target column rather than passed explicitly, and the
+`hookRoutedAt` double-write window at launch (both closed in Plan 77-03).
+
+Agent Done and In Review carry OPPOSITE asymmetries. Agent Done has an automatic in-edge (a
+marker) and, before Plan 77-01, no automatic out-edge except an already-intentional
+`agent_done → needs_input` on a new distinct marker (`applyMarker`'s own guard, unchanged). In
+Review has NO automatic in-edge (deliberately deferred, out of this phase's scope, see
+[In Review Lifecycle](#in-review-lifecycle)) but DOES have automatic out-edges (marker to
+needs_input / agent_done, and, after Plan 77-01, prompt-driven flip-back to in_progress).
+
+The watcher never drives the `agent_done`/`in_review` flip-back edges: `decideScan` only ever
+emits a `flipBack` decision when its input column is `needs_input`, so only the hook channel
+(`UserPromptSubmit`, the `PostToolUse` pause-resume branch) drives those two edges. This asymmetry
+is a named fact, not a bug — see [Watcher Discriminator](#watcher-discriminator) for the pure
+decision function this table's watcher rows read.
+
+`BOARD-06` — see also [Attention Routing](#attention-routing) and
+[In Review Lifecycle](#in-review-lifecycle), which both cross-reference this section for the full
+transition spec behind the attention/lifecycle behavior they describe.
+
 ### Watcher Discriminator
 
 The pane watcher (`adapters/markers/watcher.ts`) is one 2s self-rescheduling loop that scrapes every
@@ -320,6 +370,9 @@ human-readable column label and the card identifier, never the raw column key.
 The related unseen-activity dot (the SAME attention surface, a different trigger) is homed in
 [Watcher Discriminator](#watcher-discriminator) — `@see` that section for the dot's
 seed-on-first-observation baseline and why it deliberately carries NO flip-back debounce.
+
+The full column-by-column transition spec behind which triggers move a card INTO an attention
+column lives in [Column Transition Specification](#column-transition-specification) (`BOARD-06`).
 
 ### Resilience and Reconcile
 
@@ -442,6 +495,9 @@ mutation sets `tmuxSession` and clears `sessionLost` but DELIBERATELY never writ
 `completeStart`/`attachExistingSession`, which force `in_progress`. This is how Resume coexists with
 the [Resilience and Reconcile](#resilience-and-reconcile) `IN-03` hazard: a column-preserving
 mutation performs no promotion and is therefore safe in every column.
+
+In Review's opposite in-edge/out-edge asymmetry versus Agent Done, and the full trigger-by-trigger
+spec, are homed in [Column Transition Specification](#column-transition-specification) (`BOARD-06`).
 
 ### Terminal ttyd
 
