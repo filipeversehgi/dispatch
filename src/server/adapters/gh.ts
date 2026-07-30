@@ -9,6 +9,12 @@ interface GhCheckRun {
 
 const PASSING_CONCLUSIONS = new Set(["SUCCESS", "SKIPPED", "NEUTRAL"]);
 
+/** The only `StatusState` values a legacy commit status may be read as green on. */
+const LEGACY_PASSING_STATES = new Set(["SUCCESS"]);
+
+/** The only `StatusState` values a legacy commit status may be read as still-running on. */
+const LEGACY_PENDING_STATES = new Set(["PENDING", "EXPECTED"]);
+
 interface GhPrResult {
   number: number;
   url: string;
@@ -42,6 +48,13 @@ export type PrProbeResult =
  * `CANCELLED`, `TIMED_OUT` and `ACTION_REQUIRED`. Pass is therefore an allowlist, not a fallthrough
  * — an unrecognised conclusion reads as a failure, since a false green is the worst outcome for an
  * affordance whose whole job is to be trusted at a glance.
+ *
+ * BOTH branches are allowlists, not just the CheckRun one. The legacy branch used to test `state`
+ * against the two failure tokens and the two pending tokens and let everything else fall through to
+ * `pass` — the exact shape this doc block forbids, and the shape of a bug this codebase has already
+ * shipped once. Today's `StatusState` enum happens to be fully covered, so the fallthrough was
+ * latent rather than live, but a widened enum member, a lower-cased `gh` output, or a non-enum state
+ * from a legacy provider would each have painted a green dot on a check that did not pass.
  */
 function rollupOf(checks: GhCheckRun[]): "pass" | "fail" | "pending" | null {
   if (checks.length === 0) return null;
@@ -49,7 +62,8 @@ function rollupOf(checks: GhCheckRun[]): "pass" | "fail" | "pending" | null {
   if (
     checks.some((c) =>
       legacy(c)
-        ? c.state === "FAILURE" || c.state === "ERROR"
+        ? !LEGACY_PASSING_STATES.has(c.state ?? "") &&
+          !LEGACY_PENDING_STATES.has(c.state ?? "")
         : c.status === "COMPLETED" &&
           !PASSING_CONCLUSIONS.has(c.conclusion ?? ""),
     )
@@ -59,7 +73,7 @@ function rollupOf(checks: GhCheckRun[]): "pass" | "fail" | "pending" | null {
   if (
     checks.some((c) =>
       legacy(c)
-        ? c.state === "PENDING" || c.state === "EXPECTED"
+        ? LEGACY_PENDING_STATES.has(c.state ?? "")
         : c.status !== "COMPLETED",
     )
   ) {
