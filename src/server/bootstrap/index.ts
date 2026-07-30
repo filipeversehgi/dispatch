@@ -32,6 +32,7 @@ import {
 } from "../services/domain/hook-events.js";
 import { seedPlaybooks } from "../services/domain/playbooks.js";
 import { startPoller } from "../adapters/poller.js";
+import { startArtifactDetectionLoop } from "../adapters/artifact-detect.js";
 import { buildRegistry, getLinearSource } from "../sources/registry.js";
 import { startMarkerWatcher } from "../adapters/markers/watcher.js";
 import { reconcileSessions } from "./reconcile.js";
@@ -305,6 +306,7 @@ export async function main(opts: MainOptions = {}): Promise<{ port: number }> {
     startPoller(config, getLinearSource());
   }
   startMarkerWatcher(statusChannel);
+  startArtifactDetectionLoop(port);
   if (config.updateCheck !== false) startUpdateCheckLoop(config);
   return { port };
 }

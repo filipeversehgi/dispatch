@@ -1281,9 +1281,18 @@ nothing to build: a stale disk value after a crash mid-session either gets overw
 next tick (session still alive) or cleared by whichever teardown mutator runs (session died) —
 self-healing, with no special-casing in `hydrateFromParsed`.
 
-**Detection is a passenger, never a second timer.** The scan runs inside the existing 60s poller
-tick, behind the existing single-flight guard — never its own `setInterval`/`setTimeout` and
-never a second in-flight guard variable.
+**Detection owns its own timer, decoupled from Linear.** `adapters/artifact-detect.ts` runs a
+dedicated self-rescheduling `setTimeout` loop on a ~10s cadence (`startArtifactDetectionLoop`,
+started unconditionally at boot from `bootstrap/index.ts` regardless of whether a Linear API key
+is configured), mirroring `startMarkerWatcher`'s tick/scheduleNext/unref/immediate-first-run shape
+— never `setInterval`, and `timer.unref()` so it never pins the process. Exactly one
+single-flight guard remains, covering both probe types in a single pass: a tick slower than the
+10s cadence must not stack a second fan-out on top of one still in flight. This reverses the prior
+"passenger on the 60s poller tick" model, which piggybacked detection on `pollOnce()`'s success
+path: that coupling made both probes structurally unreachable on any install with no Linear key
+configured (F-01) and skipped an entire detection tick on any Linear fetch failure — rate limit,
+network blip, bad credentials (F-02) — collapsing "could not check" into "looks like nothing is
+there" for reasons that have nothing to do with `gh`/`lsof`/pane health.
 
 ## Do Not Change Contracts
 

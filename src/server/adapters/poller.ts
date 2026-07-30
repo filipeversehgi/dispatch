@@ -1,7 +1,4 @@
-import type { Config, PreviewInfo } from "../../shared/types.js";
-import { listPrsForBranch, type PrProbeResult } from "./gh.js";
-import { panePidsBySession } from "./tmux.js";
-import { listeningPortsBySession } from "./dev-server.js";
+import type { Config } from "../../shared/types.js";
 import { store } from "../store/board.store.js";
 import { getLinearSource } from "../sources/registry.js";
 import { RateLimited, type TicketSource } from "../sources/ticket.source.js";
@@ -14,7 +11,6 @@ let baseIntervalMs = DEFAULT_POLL_INTERVAL_MS;
 let backoffMs = DEFAULT_POLL_INTERVAL_MS;
 let generation = 0;
 let pending: ReturnType<typeof setTimeout> | null = null;
-let artifactDetectInFlight: Promise<void> | null = null;
 
 /**
  * Run one poll of the active source, then reschedule the next. The captured `gen` is the race guard:
@@ -47,9 +43,6 @@ async function pollOnce(): Promise<void> {
       source: source.id,
     });
     if (gen !== generation) return;
-    detectCardArtifacts().catch((err) =>
-      console.error("[artifact-detect] tick failed:", (err as Error).message),
-    );
     backoffMs = baseIntervalMs;
     scheduleNext(baseIntervalMs);
   } catch (err) {
@@ -78,94 +71,6 @@ async function pollOnce(): Promise<void> {
       scheduleNext(baseIntervalMs);
     }
   }
-}
-
-/**
- * Fan out the combined per-card artifact detection (PR lookup + dev-server preview scan) across
- * every live-session card, piggybacking on the existing 60s tick. Fire-and-forget from its
- * `pollOnce` call site (never awaited there): a hung or slow `gh`/`lsof` process must degrade
- * only badge freshness, never the Linear-sync cadence or `scheduleNext`'s reschedule.
- *
- * @remarks
- * Single-flighted, following the `ensureTtyd` precedent: `pollNow()` re-enters `pollOnce` on every
- * filter change and settings save, so without this guard a fresh fan-out would stack on top of one
- * still in flight. One guard covers BOTH artifact types — preview detection is a passenger on the
- * same tick and pass, never a second timer or a second in-flight variable.
- */
-async function detectCardArtifacts(): Promise<void> {
-  if (artifactDetectInFlight != null) return artifactDetectInFlight;
-
-  artifactDetectInFlight = runArtifactDetection().finally(() => {
-    artifactDetectInFlight = null;
-  });
-  return artifactDetectInFlight;
-}
-
-/**
- * @remarks
- * Per-repo PR outcomes (F-03/F-04): a failing repo no longer discards a succeeding sibling's PRs
- * — `next` flattens only the `ok: true` entries, while any `ok: false` entry sets `prsUnknown` to
- * the first failing repo's category. The asymmetry is deliberate: a repo that answers with zero
- * PRs still clears that repo's contribution to `prs`, while a failing repo contributes nothing to
- * `prs` and sets `prsUnknown` — so a card with one succeeding and one failing repo shows both the
- * succeeding repo's PRs AND the unknown badge at once. Both the `prs` and `prsUnknown` writes carry
- * their own write-skip diff so an unchanged tick never rebroadcasts.
- */
-async function runArtifactDetection(): Promise<void> {
-  const cards = store.cardsWithSession();
-
-  const panePids = await panePidsBySession();
-  let portsBySession: Map<string, number[]> | null = null;
-  if (panePids != null) {
-    const sessionNames = new Set(
-      cards.map((c) => c.tmuxSession).filter((s): s is string => s != null),
-    );
-    const narrowed = new Map(
-      [...panePids].filter(([session]) => sessionNames.has(session)),
-    );
-    portsBySession = await listeningPortsBySession(narrowed);
-  }
-
-  await Promise.all(
-    cards.map(async (card) => {
-      const session = card.tmuxSession as string;
-
-      if (card.branch != null && card.workspace != null) {
-        const branch = card.branch;
-        const repos = card.workspace.repos;
-        const results = await Promise.all(
-          repos.map((repo) => listPrsForBranch(repo.path, branch)),
-        );
-        const failed = results.filter(
-          (r): r is Extract<PrProbeResult, { ok: false }> => !r.ok,
-        );
-        const next = results
-          .filter((r): r is Extract<PrProbeResult, { ok: true }> => r.ok)
-          .flatMap((r) => r.prs);
-        if (JSON.stringify(card.prs ?? []) !== JSON.stringify(next)) {
-          await store.setPrsIfSession(card.id, session, next);
-        }
-        if (failed.length > 0) {
-          const category = failed[0].category;
-          if (card.prsUnknown?.category !== category) {
-            await store.setPrsUnknownIfSession(card.id, session, {
-              category,
-            });
-          }
-        } else if (card.prsUnknown != null) {
-          await store.setPrsUnknownIfSession(card.id, session, null);
-        }
-      }
-
-      if (portsBySession == null) return;
-      const ports = portsBySession.get(session) ?? [];
-      const next: PreviewInfo[] = ports
-        .filter((port) => port !== card.ttydPort)
-        .map((port) => ({ port, url: `http://localhost:${port}` }));
-      if (JSON.stringify(card.previews ?? []) === JSON.stringify(next)) return;
-      await store.setPreviewsIfSession(card.id, session, next);
-    }),
-  );
 }
 
 /**
