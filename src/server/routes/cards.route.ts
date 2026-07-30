@@ -609,7 +609,8 @@ cardsRouter.post("/cards/group-title", (req, res) => {
     !Array.isArray(rawMemberIds) ||
     rawMemberIds.length < 2 ||
     rawMemberIds.length > MAX_GROUP_TITLE_MEMBERS ||
-    !rawMemberIds.every((id) => typeof id === "string")
+    !rawMemberIds.every((id) => typeof id === "string") ||
+    new Set(rawMemberIds).size !== rawMemberIds.length
   ) {
     res.status(400).json({ error: "invalid-member-ids" });
     return;
