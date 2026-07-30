@@ -1243,21 +1243,36 @@ validated once (an invalid value is a StartupError naming the three literals), d
 watcher (adapters must not import services), so changing it requires a backend restart and every
 reader is race-free.
 
-**The `hookRoutedAt` latch.** Under `auto`, routing is PER SESSION on the persisted
-`card.hookRoutedAt` latch: stamped by `applyHookEvent` on the session's first authenticated hook
-event of ANY type (in practice the kickoff paste's UserPromptSubmit, seconds after launch), one-way
-within a session, and cleared ONLY via the store's `clearHookToken` chokepoint — every
-session-death path (session lost, resume failure, both cleanup outcomes) flows through it, so a
-relaunch/resume starts hook-silent and re-proves traffic. LATCH ⇒ TOKEN: `markHookRouted` refuses
-to stamp a card holding no `hookToken`, so a race with a queued session-clearing mutation can
-never latch a dead session. And because a card killed mid-saga can carry a persisted latch that
-no death path ever clears (it never got a `tmuxSession`, so reconcile cannot see it), BOTH
-hook-silent launch branches (`startClaude`/`resumeSession`) reset the card's hook-channel state
-through `store.clearHookChannel` — the same chokepoint, as one queued mutation — before spawning,
-making "a hook-silent launch starts unlatched" true by construction rather than by path
-enumeration. A hook-silent session (below-floor CLI → no injection → no token → nothing can
-authenticate) never latches and keeps full pane routing forever. The field is explicitly
-NON-SECRET: an ISO timestamp that rides `snapshot()` unredacted, unlike `hookToken`.
+**The `hookRoutedAt` latch (`WR-05`).** Under `auto`, routing is PER SESSION on the persisted
+`card.hookRoutedAt` latch, stamped by `mintHookChannel` in the SAME atomic mutation as
+`card.hookToken`, AT SESSION LAUNCH (`steps.ts#startClaude` / `resume-session.ts#resumeSession`)
+whenever the runtime is hooks-capable and not pane-only. Before this invariant, the latch was
+instead stamped by `applyHookEvent` on the session's first authenticated hook event of ANY type
+(in practice the kickoff paste's UserPromptSubmit, seconds after launch) — leaving a seconds-wide
+gap during which the watcher's `auto`-channel gate
+(`channel === "auto" && card.hookRoutedAt == null`) still treated a genuinely hooks-capable
+session as pane-routed: a real double-writer on the column (FLOW-06). Stamping both fields
+together at launch closes that window by construction — the moment a hooks-capable session's
+token exists, so does its routing latch. `applyHookEvent`'s own `markHookRouted` call is KEPT, not
+deleted: it is now a defensive no-op for every session launched under this code path, firing only
+for a card whose `hookToken` predates the launch-time stamp (a session resumed across a version
+upgrade that never went through `mintHookChannel`). One-way within a session, and cleared ONLY via
+the store's `clearHookToken` chokepoint — every session-death path (session lost, resume failure,
+both cleanup outcomes) flows through it, so a relaunch/resume starts hook-silent and re-proves
+traffic. LATCH ⇒ TOKEN still holds: both `mintHookChannel` and `markHookRouted` only ever stamp
+`hookRoutedAt` alongside a live `hookToken`, so a race with a queued session-clearing mutation can
+never latch a dead session, and clearing always removes both fields together. And because a card
+killed mid-saga can carry a persisted latch that no death path ever clears (it never got a
+`tmuxSession`, so reconcile cannot see it), BOTH hook-silent launch branches
+(`startClaude`/`resumeSession`) reset the card's hook-channel state through `store.clearHookChannel`
+— the same chokepoint, as one queued mutation — before spawning, making "a hook-silent launch
+starts unlatched" true by construction rather than by path enumeration. A hook-silent session
+(below-floor CLI → no injection → no token → nothing can authenticate) never latches and keeps
+full pane routing forever. The field is explicitly NON-SECRET: an ISO timestamp that rides
+`snapshot()` unredacted, unlike `hookToken`. `WR-05` also covers `applyMarker`'s new explicit
+`eventType` parameter (see the Column Transition Specification above): the caller now supplies
+the literal `status_needs_input`/`status_agent_done` directly rather than the store deriving it
+from the target column, so a future third target can never silently mislabel.
 
 **The watcher gate seam.** The demotion is one early return in `scanSession`'s I/O shell —
 `paneRouted` is `pane`-mode always, `hooks`-mode never, `auto` per session on the latch — placed

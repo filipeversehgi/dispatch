@@ -657,22 +657,35 @@ class BoardStore extends EventEmitter {
   }
 
   /**
-   * Persist (or clear) the card's per-session hook-auth token (setStatusReason precedent: a
-   * single-field enqueue). Written BEFORE the session spawns so a hook POST arriving as early
-   * as the kickoff paste finds the token already durable; the restart-time registry rebuild
-   * reads it back. SECURITY: the token value is never logged.
+   * Mint the hook channel in ONE atomic mutation (`WR-05`): stamp `card.hookToken` AND
+   * `card.hookRoutedAt` together, AT SESSION LAUNCH, replacing the pre-Phase-77 `setHookToken`
+   * (token only) plus a later, separate `markHookRouted` stamp on the session's first
+   * authenticated hook event. That two-step sequence left a seconds-wide window, between launch
+   * and the first event, during which the watcher's `auto`-channel gate
+   * (`channel === "auto" && card.hookRoutedAt == null`) still treated a genuinely hooks-capable
+   * session as pane-routed — a real double-writer on the column (FLOW-06). Stamping both fields
+   * in this SAME mutation closes that window by construction: the moment a hooks-capable
+   * session's token exists, so does its routing latch. Written BEFORE the session spawns
+   * (`steps.ts#startClaude` / `resume-session.ts#resumeSession`'s hooks-capable branches,
+   * immediately before `newSession`) so a hook POST arriving as early as the kickoff paste finds
+   * both fields already durable. SECURITY: the token value is never logged. No-op if the id is
+   * unknown.
+   * @see docs/ARCHITECTURE.md#hooks-status-channel
    */
-  setHookToken(id: string, token: string | undefined): Promise<void> {
+  mintHookChannel(id: string, token: string, iso: string): Promise<void> {
     return this.enqueue(() => {
       const card = this.cards.get(id);
-      if (card) card.hookToken = token;
+      if (card) {
+        card.hookToken = token;
+        card.hookRoutedAt = iso;
+      }
       return [];
     });
   }
 
   /**
    * Stamp the Claude CLI `session_id` first-event-wins so exact Resume can `--resume <id>` back
-   * into this conversation (SID-01). Single-field enqueue (setHookToken precedent) with an
+   * into this conversation (SID-01). Single-field enqueue (setStatusReason precedent) with an
    * in-queue `== null` re-check (markHookRouted precedent), so the never-overwrite decision is
    * authoritative HERE: a racing second hook event finds the id already set and no-ops. The
    * differing-id case is handled by the caller (a logged mismatch), never a silent overwrite.
@@ -812,6 +825,11 @@ class BoardStore extends EventEmitter {
    * service's read-outside-queue guard raced a queued session-clearing mutation — a latch
    * without a token would demote pane scanning for a session with no hook traffic. No-op if
    * the id is unknown.
+   * @remarks (`WR-05`) Since `mintHookChannel` now stamps this same field at session launch,
+   * this call is a defensive no-op for every session started under that code path — its
+   * `== null` guard fires only for a card whose `hookToken` predates the launch-time stamp (a
+   * session resumed across a version upgrade). Kept as a cheap compatibility fallback, not
+   * redundant dead code to delete.
    * @see docs/ARCHITECTURE.md#hooks-status-channel
    */
   markHookRouted(id: string, iso: string): Promise<void> {

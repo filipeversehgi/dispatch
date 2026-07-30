@@ -297,13 +297,15 @@ export async function awaitReplReady(session: string): Promise<void> {
 /**
  * Saga Step 3: launch the claude REPL in a detached tmux session. When the installed CLI meets
  * the hooks capability floor, the launch carries the dispatch settings layer (`--settings`) plus
- * the three per-session `DISPATCH_*` env vars via tmux `-e`; the token is minted and persisted
- * BEFORE the session exists because the kickoff paste fires the UserPromptSubmit hook (the
- * flip-back it triggers no-ops — the card is never in needs_input during the saga). Below floor
- * or under `statusChannel: "pane"` the launch is byte-identical to the pre-hooks argv (no
- * settings, no token, no env), and the pane watcher carries status alone; that branch first
- * resets the card's hook-channel state so a stale persisted latch/token from an earlier
- * hook-capable session can never survive into a hook-silent one.
+ * the three per-session `DISPATCH_*` env vars via tmux `-e`; the token AND the `hookRoutedAt`
+ * routing latch (`WR-05`) are minted together, atomically, BEFORE the session exists — closing
+ * the double-write window a separately-timed latch stamp used to leave open — because the
+ * kickoff paste fires the UserPromptSubmit hook (the flip-back it triggers no-ops — the card is
+ * never in needs_input during the saga). Below floor or under `statusChannel: "pane"` the launch
+ * is byte-identical to the pre-hooks argv (no settings, no token, no env), and the pane watcher
+ * carries status alone; that branch first resets the card's hook-channel state so a stale
+ * persisted latch/token from an earlier hook-capable session can never survive into a
+ * hook-silent one.
  * @see docs/ARCHITECTURE.md#hooks-status-channel
  */
 const startClaude: SagaStep = {
@@ -319,7 +321,7 @@ const startClaude: SagaStep = {
     if (runtime?.capable && runtime.statusChannel !== "pane") {
       const previousToken = store.getCard(ctx.card.id)?.hookToken;
       const token = mintHookToken(ctx.card.id, previousToken);
-      await store.setHookToken(ctx.card.id, token);
+      await store.mintHookChannel(ctx.card.id, token, new Date().toISOString());
       await newSession(
         session,
         ctx.workspacePath,
