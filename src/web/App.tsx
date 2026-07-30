@@ -111,6 +111,21 @@ export function App() {
     } catch {}
   }, [viewMode]);
 
+  useEffect(() => {
+    if (!inboxOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setInboxOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [inboxOpen]);
+
+  useEffect(() => {
+    if (viewMode !== "orca") return;
+    const id = setTimeout(() => setInboxOpen(false), 0);
+    return () => clearTimeout(id);
+  }, [viewMode]);
+
   const lastOpened = useLastOpened();
   const newestTs = feed.events[0]?.ts;
   const activityUnseen = isUnseen(newestTs, lastOpened["__feed__"]);
