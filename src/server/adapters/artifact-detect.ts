@@ -169,9 +169,21 @@ async function detectCardArtifacts(backendPort: number): Promise<void> {
  * `panePidsBySession`/`listeningPortsBySession` is a genuine tool failure, which advances the
  * counter for every live-session card, latches `previewsUnknown` on the first failure, and forces
  * `previews` to `[]` once the ceiling is reached.
+ *
+ * An idle board short-circuits before any subprocess runs: with no live session there is nothing to
+ * attribute a port to, yet the tick would still spawn `tmux list-panes -a` every 10s forever and —
+ * with no tmux server at all — walk the entire tool-failure branch against zero cards. The three
+ * bookkeeping maps are cleared rather than left alone, because the per-tick prune at the bottom is
+ * the only thing that normally evicts a torn-down card's streak and this return skips it.
  */
 async function runArtifactDetection(backendPort: number): Promise<void> {
   const cards = store.cardsWithSession();
+  if (cards.length === 0) {
+    prFailureCounts.clear();
+    prRetryNotBefore.clear();
+    previewFailureCounts.clear();
+    return;
+  }
 
   const excludedPorts = new Set<number>([backendPort]);
   for (const card of cards) {
