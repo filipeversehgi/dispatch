@@ -290,6 +290,15 @@ instant the request body is fully read, well before any response is sent, which 
 `draftInFlight`'s own history records (`/cards/draft` silently aborted every real invocation until
 fixed); this route was written correctly from its first commit.
 
+`MODAL-01` is the client-side no-visible-wait gate: the deterministic default
+(`deterministicGroupTitle`, see Plan 78-01) fills the title field INSTANTLY on modal open — zero
+network round trip — so the field is never empty. The background generation call races the user
+in a mount-time effect, and its result (`shouldAcceptGeneratedPhrase`) is applied ONLY if the user
+has not typed since the field was set; any keystroke wins permanently for the life of the modal.
+Start is gated on nothing but a non-empty trimmed title, exactly as before this phase — generation
+is a pure enhancement that lands or does not, never a barrier, and a generation that times out or
+fails is abandoned silently with the deterministic fallback left in place.
+
 ### Watcher Discriminator
 
 The pane watcher (`adapters/markers/watcher.ts`) is one 2s self-rescheduling loop that scrapes every

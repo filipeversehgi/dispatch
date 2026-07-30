@@ -62,3 +62,16 @@ export function composeGroupTitle(phrase: string, members: Card[]): string {
 export function deterministicGroupTitle(members: Card[]): string {
   return composeGroupTitle(deterministicPhrase(members), members);
 }
+
+/**
+ * The `MODAL-01` no-visible-wait gate: a background-generated phrase may replace the title
+ * field's current value ONLY when the user has not typed since the deterministic default (Plan
+ * 78-01) was set.
+ * @remarks The caller MUST NEVER gate Start, disable any control, or show any loading indicator on
+ * this predicate or on the generation promise settling — generation is a pure enhancement that
+ * lands or does not.
+ * @see docs/ARCHITECTURE.md#group-card-titles
+ */
+export function shouldAcceptGeneratedPhrase(userHasEdited: boolean): boolean {
+  return !userHasEdited;
+}

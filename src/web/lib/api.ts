@@ -366,6 +366,29 @@ export async function generateTicketDraft(
 }
 
 /**
+ * Generate a group card title phrase via headless `claude -p`: POST /api/cards/group-title.
+ * Mirrors `generateTicketDraft`'s EXACT discrimination shape: non-OK statuses (400/409/502)
+ * resolve `{ ok: false }`; a genuine abort or network failure REJECTS, left for the caller's catch
+ * block — deliberately not wrapped in try/catch here.
+ */
+export async function generateGroupTitle(
+  memberIds: string[],
+  signal: AbortSignal,
+): Promise<{ ok: true; phrase: string } | { ok: false }> {
+  const res = await fetch("/api/cards/group-title", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ memberIds }),
+    signal,
+  });
+  if (!res.ok) {
+    return { ok: false };
+  }
+  const body = (await res.json()) as { phrase: string };
+  return { ok: true, phrase: body.phrase };
+}
+
+/**
  * Persist a reviewed/edited ticket draft: POST /api/cards. The server mints the `LOCAL-<n>`
  * identifier and re-validates title/description (incl. the DISPATCH_STATUS footgun guard) — the
  * client's draft is never trusted. Resolves the created `Card` on 201. Mirrors

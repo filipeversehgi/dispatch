@@ -1,12 +1,16 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Card as CardModel } from "../../../shared/types.js";
-import { startGroup } from "../../lib/api.js";
+import { generateGroupTitle, startGroup } from "../../lib/api.js";
 import { Button } from "../../primitives/Button.js";
 import { Field } from "../../primitives/Field.js";
 import { Modal, type ModalControl } from "../../primitives/Modal.js";
 import { Notice } from "../../primitives/Notice.js";
 import { MemberRow } from "../board/index.js";
-import { deterministicGroupTitle } from "./group-title.js";
+import {
+  composeGroupTitle,
+  deterministicGroupTitle,
+  shouldAcceptGeneratedPhrase,
+} from "./group-title.js";
 import { StartModal } from "./StartModal.js";
 
 interface GroupStartModalProps {
@@ -27,6 +31,7 @@ export function GroupStartModal({
 }: GroupStartModalProps) {
   const titleRef = useRef<HTMLInputElement>(null);
   const modalRef = useRef<ModalControl>(null);
+  const userHasEditedRef = useRef(false);
   const [title, setTitle] = useState(() => deterministicGroupTitle(members));
   const [extraDirection, setExtraDirection] = useState("");
   const [error, setError] = useState<{
@@ -51,6 +56,21 @@ export function GroupStartModal({
     error?.variant === "config" ||
     selectedFolder === null ||
     checkedCount === 0;
+
+  useEffect(() => {
+    const controller = new AbortController();
+    generateGroupTitle(
+      members.map((m) => m.id),
+      controller.signal,
+    )
+      .then((result) => {
+        if (!result.ok) return;
+        if (!shouldAcceptGeneratedPhrase(userHasEditedRef.current)) return;
+        setTitle(composeGroupTitle(result.phrase, members));
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [members]);
 
   async function handleStart() {
     if (startDisabled) return;
@@ -132,7 +152,10 @@ export function GroupStartModal({
             ref={titleRef}
             value={title}
             maxLength={300}
-            onChange={(e) => setTitle(e.target.value)}
+            onChange={(e) => {
+              setTitle(e.target.value);
+              userHasEditedRef.current = true;
+            }}
             onFocus={() => setTitleFocus(true)}
             onBlur={() => setTitleFocus(false)}
             aria-label="Title"
