@@ -657,28 +657,25 @@ class BoardStore extends EventEmitter {
   }
 
   /**
-   * Mint the hook channel in ONE atomic mutation (`WR-05`): stamp `card.hookToken` AND
-   * `card.hookRoutedAt` together, AT SESSION LAUNCH, replacing the pre-Phase-77 `setHookToken`
-   * (token only) plus a later, separate `markHookRouted` stamp on the session's first
-   * authenticated hook event. That two-step sequence left a seconds-wide window, between launch
-   * and the first event, during which the watcher's `auto`-channel gate
-   * (`channel === "auto" && card.hookRoutedAt == null`) still treated a genuinely hooks-capable
-   * session as pane-routed — a real double-writer on the column (FLOW-06). Stamping both fields
-   * in this SAME mutation closes that window by construction: the moment a hooks-capable
-   * session's token exists, so does its routing latch. Written BEFORE the session spawns
-   * (`steps.ts#startClaude` / `resume-session.ts#resumeSession`'s hooks-capable branches,
-   * immediately before `newSession`) so a hook POST arriving as early as the kickoff paste finds
-   * both fields already durable. SECURITY: the token value is never logged. No-op if the id is
-   * unknown.
+   * Mint the hook channel's credential at session launch: stamp `card.hookToken` ONLY. Written
+   * BEFORE the session spawns (`steps.ts#startClaude` / `resume-session.ts#resumeSession`'s
+   * hooks-capable branches, immediately before `newSession`) so a hook POST arriving as early as
+   * the kickoff paste already authenticates. SECURITY: the token value is never logged. No-op if
+   * the id is unknown.
+   * @remarks (`WR-05`) This mutator deliberately does NOT stamp `card.hookRoutedAt`. The latch is
+   * EVIDENCE that hook events actually arrive, never a PREDICTION derived from a `claude --version`
+   * parse: the capability check says nothing about whether the hook script's `curl` exists on the
+   * spawned session's PATH, and that script exits 0 on failure by design so the transport can fail
+   * completely and silently. Stamping the latch here would close the watcher's `auto` gate for such
+   * a session and leave it with ZERO status channels — no marker scan, no flip-back, no activity
+   * dot — permanently. Arbitration must always fail toward HAVING a channel: `markHookRouted`, on
+   * the first authenticated event, is the only place the latch may be written.
    * @see docs/ARCHITECTURE.md#hooks-status-channel
    */
-  mintHookChannel(id: string, token: string, iso: string): Promise<void> {
+  mintHookChannel(id: string, token: string): Promise<void> {
     return this.enqueue(() => {
       const card = this.cards.get(id);
-      if (card) {
-        card.hookToken = token;
-        card.hookRoutedAt = iso;
-      }
+      if (card) card.hookToken = token;
       return [];
     });
   }
@@ -825,11 +822,13 @@ class BoardStore extends EventEmitter {
    * service's read-outside-queue guard raced a queued session-clearing mutation — a latch
    * without a token would demote pane scanning for a session with no hook traffic. No-op if
    * the id is unknown.
-   * @remarks (`WR-05`) Since `mintHookChannel` now stamps this same field at session launch,
-   * this call is a defensive no-op for every session started under that code path — its
-   * `== null` guard fires only for a card whose `hookToken` predates the launch-time stamp (a
-   * session resumed across a version upgrade). Kept as a cheap compatibility fallback, not
-   * redundant dead code to delete.
+   * @remarks (`WR-05`) This is the ONLY site allowed to stamp the latch, and it runs only once a
+   * hook POST has authenticated — so the latch means "this session's hook transport demonstrably
+   * works", never "the installed CLI's version is high enough". A hooks-capable session whose
+   * events never arrive therefore keeps full pane routing instead of going dark, which is the
+   * ordering the `auto` channel must always preserve: a brief overlap where both channels are live
+   * is cosmetic (both converge on `applyMarker`/`flipBack` behind `lastMarker` dedup and the
+   * single-writer queue), whereas zero live channels is a card frozen forever.
    * @see docs/ARCHITECTURE.md#hooks-status-channel
    */
   markHookRouted(id: string, iso: string): Promise<void> {

@@ -207,13 +207,13 @@ function resolvePreToolUseDiscriminator(
  * The single channel-policy entry point for every authenticated hook event, owning in order:
  * the pane-mode no-op guard (a straggler session injected before a config flip to `pane` must
  * mutate NOTHING — no latch, no stamp, no marker/flip; the route still authenticates), the
- * write-once hook-routed latch (`WR-05`: KEPT as a compatibility fallback even though
- * `store.mintHookChannel` now stamps `hookRoutedAt` at session launch for every session started
- * under the current code — this guard's `== null` branch fires only for a card whose `hookToken`
- * predates that launch-time stamp, e.g. a session resumed across a version upgrade; any
- * authenticated event still proves the session's hook capability, the read-before-enqueue guard
- * prevents per-event write churn, and the store's mutator refuses a token-less card so the race
- * with a queued session-clearing mutation can never latch a dead session), the activity stamp on
+ * write-once hook-routed latch (`WR-05`: the SOLE site that stamps `hookRoutedAt`, and the reason
+ * the latch is evidence rather than a prediction — an authenticated event is the only proof that
+ * this session's hook transport actually delivers, so a version-capable session whose hook script
+ * can never reach the port keeps full pane routing instead of losing every status channel; the
+ * read-before-enqueue guard prevents per-event write churn, and the store's mutator refuses a
+ * token-less card so the race with a queued session-clearing mutation can never latch a dead
+ * session), the activity stamp on
  * PostToolUse/Stop only (the user's own typing is not agent
  * output, so UserPromptSubmit never stamps; PostToolUse is throttled, Stop is exempt — see
  * ACTIVITY_THROTTLE_MS), and the Stop/UserPromptSubmit/PreToolUse/PostToolUse board mapping.

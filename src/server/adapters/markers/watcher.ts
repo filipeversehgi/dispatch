@@ -92,6 +92,14 @@ const captureFailures = new Map<string, number>();
  * flip-back, and dot pane-diffing — per session, while capture and its 3-strike dead-session
  * detector above the gate stay unconditional on every channel: capture IS the RESIL-01 probe and
  * must run for hook-routed sessions too.
+ * @remarks (`WR-05`) Under `auto` the gate demotes this channel ONLY on `card.hookRoutedAt`, which
+ * is stamped exclusively by an authenticated hook event. That asymmetry is deliberate: because
+ * everything below the gate is this session's LAST status channel, the gate must never close on a
+ * prediction (a CLI version parse) that a hook POST will one day arrive — a hook script whose
+ * `curl` is missing from the session's PATH fails silently by design, and a predicted latch would
+ * leave such a card with no marker scan, no flip-back and no activity dot for the rest of its life.
+ * Erring the other way costs at most a brief overlap where both channels are live, which
+ * `lastMarker` dedup and the single-writer queue already absorb.
  * @remarks (`WR-05`) The `applyMarker` case derives its `eventType` from `decision.column` with a
  * ternary — the one place that derivation survives, because `scan-decision.ts`'s `Decision` type
  * is replay-frozen and carries no event-type field of its own. This I/O shell is where the frozen

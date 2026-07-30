@@ -1244,32 +1244,45 @@ watcher (adapters must not import services), so changing it requires a backend r
 reader is race-free.
 
 **The `hookRoutedAt` latch (`WR-05`).** Under `auto`, routing is PER SESSION on the persisted
-`card.hookRoutedAt` latch, stamped by `mintHookChannel` in the SAME atomic mutation as
-`card.hookToken`, AT SESSION LAUNCH (`steps.ts#startClaude` / `resume-session.ts#resumeSession`)
-whenever the runtime is hooks-capable and not pane-only. Before this invariant, the latch was
-instead stamped by `applyHookEvent` on the session's first authenticated hook event of ANY type
-(in practice the kickoff paste's UserPromptSubmit, seconds after launch) — leaving a seconds-wide
-gap during which the watcher's `auto`-channel gate
-(`channel === "auto" && card.hookRoutedAt == null`) still treated a genuinely hooks-capable
-session as pane-routed: a real double-writer on the column (FLOW-06). Stamping both fields
-together at launch closes that window by construction — the moment a hooks-capable session's
-token exists, so does its routing latch. `applyHookEvent`'s own `markHookRouted` call is KEPT, not
-deleted: it is now a defensive no-op for every session launched under this code path, firing only
-for a card whose `hookToken` predates the launch-time stamp (a session resumed across a version
-upgrade that never went through `mintHookChannel`). One-way within a session, and cleared ONLY via
+`card.hookRoutedAt` latch, stamped by `applyHookEvent` → `markHookRouted` on the session's FIRST
+authenticated hook event of any type — in practice the kickoff paste's UserPromptSubmit, seconds
+after launch. `mintHookChannel` persists the session's `hookToken` at launch
+(`steps.ts#startClaude` / `resume-session.ts#resumeSession`) and deliberately stamps nothing else.
+
+**The latch is EVIDENCE, never a PREDICTION — arbitration fails toward having a channel.** This is
+the load-bearing half of the invariant. `runtime.capable` is only a parse of `claude --version`; it
+says nothing about whether a hook POST can ever arrive. The generated hook script shells out to
+`curl` and inherits the tmux session's PATH, and it ends in `|| true; exit 0` by design so a failed
+hook can never block a turn — so on a host where `curl` is not on that PATH (dispatch under
+launchd's minimal environment is the documented case), every hook invocation fails in total
+silence. Because the watcher's `auto` gate returns early when the latch is set, and everything
+below that gate — marker scan, flip-back, AND the unseen-activity dot — is that session's only
+remaining status channel, latching on capability alone would leave such a card with ZERO channels:
+stuck in In Progress forever, with only the 3-strike dead-session probe (which sits above the gate)
+still running. Stamping on proof instead means the worst case is the opposite error — a brief
+window after launch where both channels are live, which is cosmetic, since both converge on the
+same `applyMarker`/`flipBack` primitives behind `lastMarker` dedup and the single-writer queue.
+That ordering (a double-write is an annoyance, no channel is a dead card) is the rule any future
+change to this arbitration must preserve. A launch-time latch was tried and withdrawn for exactly
+this reason; the window it closed is in any case not reachable through the start saga, because
+`completeStart` sets `tmuxSession` only after the whole saga — including the kickoff — has
+finished, so `cardsWithSession()` cannot even see the card while the saga runs.
+
+The latch is one-way within a session, and cleared ONLY via
 the store's `clearHookToken` chokepoint — every session-death path (session lost, resume failure,
 both cleanup outcomes) flows through it, so a relaunch/resume starts hook-silent and re-proves
-traffic. LATCH ⇒ TOKEN still holds: both `mintHookChannel` and `markHookRouted` only ever stamp
+traffic. LATCH ⇒ TOKEN still holds: `markHookRouted` only ever stamps
 `hookRoutedAt` alongside a live `hookToken`, so a race with a queued session-clearing mutation can
 never latch a dead session, and clearing always removes both fields together. And because a card
-killed mid-saga can carry a persisted latch that no death path ever clears (it never got a
-`tmuxSession`, so reconcile cannot see it), BOTH hook-silent launch branches
+killed mid-saga can carry a persisted token/latch pair that no death path ever clears (it never got
+a `tmuxSession`, so reconcile cannot see it), BOTH hook-silent launch branches
 (`startClaude`/`resumeSession`) reset the card's hook-channel state through `store.clearHookChannel`
 — the same chokepoint, as one queued mutation — before spawning, making "a hook-silent launch
 starts unlatched" true by construction rather than by path enumeration. A hook-silent session
 (below-floor CLI → no injection → no token → nothing can authenticate) never latches and keeps
-full pane routing forever. The field is explicitly NON-SECRET: an ISO timestamp that rides
-`snapshot()` unredacted, unlike `hookToken`. `WR-05` also covers `applyMarker`'s new explicit
+full pane routing forever — and so, now, does a version-capable session whose hook script cannot
+reach the port. The field is explicitly NON-SECRET: an ISO timestamp that rides
+`snapshot()` unredacted, unlike `hookToken`. `WR-05` also covers `applyMarker`'s explicit
 `eventType` parameter (see the Column Transition Specification above): the caller now supplies
 the literal `status_needs_input`/`status_agent_done` directly rather than the store deriving it
 from the target column, so a future third target can never silently mislabel.
@@ -1346,11 +1359,18 @@ layers, ordered lowest-risk first:
    structurally unable to detect the pause (unregressed, pre-existing, out of this fix's scope),
    and a manual drag still wins over any marker.
 
-**Accepted residuals.** Under `auto` the seconds-wide [launch → kickoff] window can double-stamp
-the same activity via both channels (two SSE frames, same semantic — cosmetic, self-heals on
-view). Under `hooks`, a hook-silent session gets NO status routing at all — the user's explicit
-mode choice; dead-session detection still covers it. A pathological >1mb PostToolUse payload is
-rejected by the body limit and drops one cosmetic stamp, self-healing on the next event.
+**Accepted residuals.** Under `auto`, the window between a card becoming watcher-visible and its
+first authenticated hook event has BOTH channels live and can double-stamp the same activity (two
+SSE frames, same semantic — cosmetic, self-heals on view). This is the deliberate direction of the
+`WR-05` trade above and must not be "fixed" by predicting the latch. On the start path the window
+is empty anyway (`completeStart` publishes `tmuxSession` only after the kickoff); on the resume
+path it lasts until the user's first prompt, because a resume sends no kickoff. The latch is also
+one-way within a session, so a hook transport that delivers once and then breaks keeps the pane
+channel demoted for the rest of that session — bounded by the fact that the transport is fixed at
+launch, and the 3-strike dead-session probe still runs above the gate either way. Under `hooks`, a
+hook-silent session gets NO status routing at all — the user's explicit mode choice; dead-session
+detection still covers it. A pathological >1mb PostToolUse payload is rejected by the body limit
+and drops one cosmetic stamp, self-healing on the next event.
 
 ### Dev-Server Preview Detection
 
