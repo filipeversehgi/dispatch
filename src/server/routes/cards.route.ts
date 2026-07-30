@@ -60,6 +60,11 @@ function inboxTransitionError(card: Card, column: Column): string | null {
  * `moveCardManual` consults, so the 409 message and the store's silent guard can never disagree
  * about which pairs are blocked. The named predicates only choose which message applies; they are
  * never a second, independent decision.
+ * @remarks The fallthrough is a REFUSAL, not a pass. `isManualMoveAllowed` is the growth point for
+ * the blocked set, and the two named predicates below only exist to phrase the two pairs blocked
+ * today. A rule added to the allowlist without a matching message here must still 409 — returning
+ * `null` would hand the caller a 200 while `moveCardManual` silently no-ops, reinstating at the
+ * route layer exactly the invisible refusal `BOARD-07` exists to remove.
  */
 function manualMoveTransitionError(card: Card, column: Column): string | null {
   if (isManualMoveAllowed(card.column, column)) return null;
@@ -67,7 +72,7 @@ function manualMoveTransitionError(card: Card, column: Column): string | null {
     return "Agent Done is set automatically by a real agent completion signal — it is never a manual move target";
   if (blocksTodoToInProgressManualMove(card.column, column))
     return "starting a To Do card requires the start flow — drag it to In Progress (or use Start) rather than posting a bare move";
-  return null;
+  return `moving ${card.column} → ${column} is not an allowed manual transition`;
 }
 
 /**
