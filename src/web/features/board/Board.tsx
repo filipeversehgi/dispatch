@@ -171,6 +171,14 @@ export function Board({
     }),
   );
 
+  const [refusedColumn, setRefusedColumn] = useState<ColumnId | null>(null);
+
+  useEffect(() => {
+    if (refusedColumn == null) return;
+    const timer = setTimeout(() => setRefusedColumn(null), 3200);
+    return () => clearTimeout(timer);
+  }, [refusedColumn]);
+
   const justDroppedRef = useRef(false);
 
   function armClickSuppression() {
@@ -208,6 +216,11 @@ export function Board({
     }
 
     if (card.column === targetColumn) return;
+
+    if (blocksAgentDoneManualEntry(targetColumn)) {
+      setRefusedColumn(targetColumn);
+      return;
+    }
 
     const previousColumn = card.column;
     setCards((prev) =>
@@ -305,6 +318,7 @@ export function Board({
                 phone={isPhone}
                 large={isLarge}
                 manualEntryBlocked={blocksAgentDoneManualEntry(column)}
+                refusedDrop={refusedColumn === column}
                 resizeDisabled={activeCardId != null}
               />
             ))}

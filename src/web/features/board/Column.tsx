@@ -30,6 +30,7 @@ interface ColumnProps {
   phone?: boolean;
   large?: boolean;
   manualEntryBlocked?: boolean;
+  refusedDrop?: boolean;
   resizeDisabled?: boolean;
 }
 
@@ -47,13 +48,13 @@ export function Column({
   phone,
   large,
   manualEntryBlocked,
+  refusedDrop,
   resizeDisabled,
 }: ColumnProps) {
-  const { setNodeRef, isOver } = useDroppable({
-    id: column,
-    disabled: manualEntryBlocked,
-  });
+  const { setNodeRef, isOver } = useDroppable({ id: column });
   const highlight = isOver && !manualEntryBlocked;
+  const refusing =
+    manualEntryBlocked === true && (isOver || refusedDrop === true);
   const widths = useColumnWidths();
   const persistedWidth = widths[column];
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -208,8 +209,14 @@ export function Column({
         position: "relative",
         background: highlight
           ? "color-mix(in srgb, var(--accent) 12%, var(--surface-column))"
-          : "var(--surface-column)",
-        border: highlight ? "1px solid var(--accent)" : "1px solid transparent",
+          : refusing
+            ? "color-mix(in srgb, var(--status-stale) 8%, var(--surface-column))"
+            : "var(--surface-column)",
+        border: highlight
+          ? "1px solid var(--accent)"
+          : refusing
+            ? "1px solid var(--status-stale)"
+            : "1px solid transparent",
         borderRadius: "var(--radius)",
         padding: "0 var(--space-lg) var(--space-lg)",
         overflow: "hidden",
@@ -304,6 +311,28 @@ export function Column({
           </span>
         )}
       </div>
+
+      {refusing && (
+        <div
+          role="status"
+          style={{
+            flex: "0 0 auto",
+            marginBottom: "var(--space-sm)",
+            padding: "var(--space-xs) var(--space-sm)",
+            borderRadius: "var(--radius)",
+            background:
+              "color-mix(in srgb, var(--status-stale) 14%, var(--surface-column))",
+            border: "1px solid var(--status-stale)",
+            color: "var(--text)",
+            fontSize: "var(--font-label)",
+            fontWeight: "var(--weight-regular)",
+            lineHeight: "var(--line-label)",
+          }}
+        >
+          Can&rsquo;t drop here — a card only reaches Agent Done on a real agent
+          completion signal.
+        </div>
+      )}
 
       <div
         className="scroll-stable-y"
