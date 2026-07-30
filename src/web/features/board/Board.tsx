@@ -295,6 +295,7 @@ export function Board({
                 isCarousel={isCarousel}
                 phone={isPhone}
                 large={isLarge}
+                manualEntryBlocked={column === "agent_done"}
                 resizeDisabled={activeCardId != null}
               />
             ))}

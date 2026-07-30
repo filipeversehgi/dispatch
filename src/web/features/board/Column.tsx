@@ -29,7 +29,7 @@ interface ColumnProps {
   isCarousel?: boolean;
   phone?: boolean;
   large?: boolean;
-  dropDisabled?: boolean;
+  manualEntryBlocked?: boolean;
   resizeDisabled?: boolean;
 }
 
@@ -46,11 +46,14 @@ export function Column({
   isCarousel,
   phone,
   large,
-  dropDisabled,
+  manualEntryBlocked,
   resizeDisabled,
 }: ColumnProps) {
-  const { setNodeRef, isOver } = useDroppable({ id: column });
-  const highlight = isOver && !dropDisabled;
+  const { setNodeRef, isOver } = useDroppable({
+    id: column,
+    disabled: manualEntryBlocked,
+  });
+  const highlight = isOver && !manualEntryBlocked;
   const widths = useColumnWidths();
   const persistedWidth = widths[column];
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -284,6 +287,17 @@ export function Column({
         >
           {cards.length}
         </span>
+        {manualEntryBlocked && (
+          <span
+            style={{
+              color: "var(--text-muted)",
+              fontSize: "var(--font-label)",
+              fontWeight: "var(--weight-regular)",
+            }}
+          >
+            Automatic — completion only
+          </span>
+        )}
       </div>
 
       <div

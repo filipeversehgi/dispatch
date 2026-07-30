@@ -19,6 +19,8 @@ const MAX_WIDTH = 260;
 const ROW_HEIGHT = 44;
 const GAP = 4;
 
+const MOVABLE_TARGETS = COLUMNS.filter((column) => column !== "agent_done");
+
 export function MoveToPicker({
   card,
   anchorRect,
@@ -49,7 +51,7 @@ export function MoveToPicker({
     MAX_WIDTH,
     Math.max(MIN_WIDTH, window.innerWidth * 0.6),
   );
-  const estimatedHeight = COLUMNS.length * ROW_HEIGHT + GAP * 2;
+  const estimatedHeight = MOVABLE_TARGETS.length * ROW_HEIGHT + GAP * 2;
   const openAbove = anchorRect.bottom + estimatedHeight > window.innerHeight;
   const top = openAbove
     ? Math.max(GAP, anchorRect.top - estimatedHeight - GAP)
@@ -95,7 +97,7 @@ export function MoveToPicker({
           flexDirection: "column",
         }}
       >
-        {COLUMNS.map((column, index) => {
+        {MOVABLE_TARGETS.map((column, index) => {
           const current = card.column === column;
           return (
             <button
