@@ -13,7 +13,7 @@ import { useTransitionNotifications } from "./hooks/useTransitionNotifications.j
 import { AppShell } from "./AppShell.js";
 import { SyncStrip } from "./features/sync/index.js";
 import { Glyph } from "./primitives/Glyph.js";
-import { Board, membersOf } from "./features/board/index.js";
+import { Board, inboxWaitingCount, membersOf } from "./features/board/index.js";
 import { InboxView } from "./features/inbox/index.js";
 import { OrcaView, mostRecentCardId } from "./features/orca/index.js";
 import { DetailPanel } from "./features/detail/index.js";
@@ -244,7 +244,7 @@ export function App() {
             activityUnseen={activityUnseen}
             activityOpen={activityOpen}
             onOpenInbox={() => setInboxOpen((v) => !v)}
-            inboxCount={board.cards.filter((c) => c.column === "inbox").length}
+            inboxCount={inboxWaitingCount(board.cards)}
             inboxOpen={inboxOpen}
             onOpenCreateTicket={() => setCreateTicketOpen(true)}
             viewMode={viewMode}
