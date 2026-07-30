@@ -1346,14 +1346,21 @@ self-healing, with no special-casing in `hydrateFromParsed`.
 dedicated self-rescheduling `setTimeout` loop on a ~10s cadence (`startArtifactDetectionLoop`,
 started unconditionally at boot from `bootstrap/index.ts` regardless of whether a Linear API key
 is configured), mirroring `startMarkerWatcher`'s tick/scheduleNext/unref/immediate-first-run shape
-— never `setInterval`, and `timer.unref()` so it never pins the process. Exactly one
-single-flight guard remains, covering both probe types in a single pass: a tick slower than the
-10s cadence must not stack a second fan-out on top of one still in flight. This reverses the prior
+— never `setInterval`, and `timer.unref()` so it never pins the process. This reverses the prior
 "passenger on the 60s poller tick" model, which piggybacked detection on `pollOnce()`'s success
 path: that coupling made both probes structurally unreachable on any install with no Linear key
 configured (F-01) and skipped an entire detection tick on any Linear fetch failure — rate limit,
 network blip, bad credentials (F-02) — collapsing "could not check" into "looks like nothing is
 there" for reasons that have nothing to do with `gh`/`lsof`/pane health.
+
+**The single-flight guard is retained for future callers, and enforces nothing today.** The loop arms
+its next timer only in the awaited tick's `finally`, so a slow tick delays the following one instead
+of overlapping it — the timer path cannot re-enter `detectCardArtifacts`, and it is the only caller.
+The guard survives because a non-timer trigger is the obvious next step (a "refresh signals now"
+route, the shape `pollNow()` already has for the Linear poller) and because the earlier
+`pollOnce()`-driven design genuinely did re-enter. Anyone adding that second trigger must know what
+the guard returns: the promise of the tick ALREADY in flight, not a fresh scan. A caller wanting
+guaranteed-fresh results has to wait for the in-flight tick to settle and then run another.
 
 ## Do Not Change Contracts
 

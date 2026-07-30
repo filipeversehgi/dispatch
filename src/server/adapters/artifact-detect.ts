@@ -95,9 +95,16 @@ async function confirmReachable(
  * every live-session card, driven by this module's own self-rescheduling ~10s loop.
  *
  * @remarks
- * Single-flighted: a tick slower than the 10s cadence must not stack a second fan-out on top of
- * one still in flight. One guard still covers BOTH probe types in one pass — preview detection is
- * a passenger on the same call, never a second timer or a second in-flight variable.
+ * The single-flight guard enforces nothing on the timer path and is kept for future callers.
+ * `scheduleNext()` runs in the awaited tick's `finally`, so a slow tick delays the next one rather
+ * than overlapping it, and `tick()` is the only caller — `artifactDetectInFlight` is therefore never
+ * non-`null` when tested today. It survives because a non-timer trigger is the obvious next step (a
+ * "refresh signals now" route, the shape `pollNow()` already has for the Linear poller) and because
+ * the earlier `pollOnce()`-driven design genuinely did re-enter. Such a caller must know what it
+ * gets: the promise of the tick ALREADY in flight, NOT a fresh scan. One guard covers BOTH probe
+ * types in one pass — preview detection is a passenger on the same call, never a second timer or a
+ * second in-flight variable.
+ * @see docs/ARCHITECTURE.md#dev-server-preview-detection
  */
 async function detectCardArtifacts(backendPort: number): Promise<void> {
   if (artifactDetectInFlight != null) return artifactDetectInFlight;
