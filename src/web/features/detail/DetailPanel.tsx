@@ -15,6 +15,7 @@ import { CardTimeline } from "./CardTimeline.js";
 import { PanelHeader } from "./PanelHeader.js";
 import { PrRow } from "./PrRow.js";
 import { PreviewRow } from "./PreviewRow.js";
+import { UnknownProbeRow } from "./UnknownProbeRow.js";
 import { ReferenceBlocks } from "./ReferenceBlocks.js";
 import { SessionLostSection } from "./SessionLostSection.js";
 import { TerminalRegion } from "./TerminalRegion.js";
@@ -438,7 +439,8 @@ export function DetailPanel({
               )}
 
               {c != null &&
-                ((c.prs != null && c.prs.length > 0) ||
+                (c.prsUnknown != null ||
+                  (c.prs != null && c.prs.length > 0) ||
                   (c.previews != null && c.previews.length > 0)) && (
                   <div
                     style={{
@@ -449,9 +451,14 @@ export function DetailPanel({
                       borderBottom: "1px solid var(--border)",
                     }}
                   >
-                    {c.prs?.map((pr) => (
-                      <PrRow key={pr.url} pr={pr} />
-                    ))}
+                    {c.prsUnknown != null ? (
+                      <UnknownProbeRow
+                        signal="pr"
+                        category={c.prsUnknown.category}
+                      />
+                    ) : (
+                      c.prs?.map((pr) => <PrRow key={pr.url} pr={pr} />)
+                    )}
                     {c.previews?.map((preview) => (
                       <PreviewRow key={preview.port} preview={preview} />
                     ))}

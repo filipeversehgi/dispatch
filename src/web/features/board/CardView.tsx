@@ -24,6 +24,7 @@ import {
   PrBadge,
   PreviewBadge,
   SourceBadge,
+  UnknownProbeBadge,
 } from "../badges/index.js";
 import { Button } from "../../primitives/Button.js";
 import { Field } from "../../primitives/Field.js";
@@ -280,9 +281,14 @@ export function CardView({
           >
             <SourceBadge source={card.source ?? "linear"} />
             <LinearStateBadge card={card} />
-            {card.prs?.map((pr) => (
-              <PrBadge key={pr.url} pr={pr} />
-            ))}
+            {card.prsUnknown != null ? (
+              <UnknownProbeBadge
+                signal="pr"
+                category={card.prsUnknown.category}
+              />
+            ) : (
+              card.prs?.map((pr) => <PrBadge key={pr.url} pr={pr} />)
+            )}
             {card.previews?.map((preview) => (
               <PreviewBadge key={preview.port} preview={preview} />
             ))}

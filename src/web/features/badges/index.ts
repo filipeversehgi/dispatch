@@ -3,3 +3,5 @@ export { LinearStateBadge } from "./LinearStateBadge.js";
 export { PrBadge } from "./PrBadge.js";
 export { PreviewBadge } from "./PreviewBadge.js";
 export { SourceBadge } from "./SourceBadge.js";
+export { UnknownProbeBadge } from "./UnknownProbeBadge.js";
+export { unknownProbeCopy } from "./unknown-probe-copy.js";
