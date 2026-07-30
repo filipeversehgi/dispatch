@@ -21,6 +21,7 @@ sections are scaffolded here and filled by the later Phase 10 migration plans.
   - [Single Writer Store](#single-writer-store)
   - [Marker Protocol](#marker-protocol)
   - [Column Transition Specification](#column-transition-specification)
+  - [Group Card Titles](#group-card-titles)
   - [Watcher Discriminator](#watcher-discriminator)
   - [Attention Routing](#attention-routing)
   - [Resilience and Reconcile](#resilience-and-reconcile)
@@ -264,6 +265,30 @@ decision function this table's watcher rows read.
 `BOARD-06` — see also [Attention Routing](#attention-routing) and
 [In Review Lifecycle](#in-review-lifecycle), which both cross-reference this section for the full
 transition spec behind the attention/lifecycle behavior they describe.
+
+### Group Card Titles
+
+A group card's title now describes the grouped tickets' common thread, replacing the old
+unbounded identifier-join default (`PROP-1 + PROP-2 + ...`). The title is write-once at
+group-creation time: there is no rename route, and none is added, because the title is baked into
+the agent's kickoff at start time (`kickoff.ts`) and never re-sent — a rename after start would
+desync the card's visible label from what the running agent was already told it is working on.
+
+`ORCH-05` is the background generation contract: a headless `claude -p` subprocess
+(`group-title-generate.ts#generateGroupTitlePhrase`), modelled on
+`ticket-generate.ts#generateTicketDraft` with the same fixed-literal argv (only the prompt is
+request-derived), reads each member's `identifier`/`title`/`project` — never `description`, the
+largest attacker-influenced surface on a Linear-sourced card — and proposes a short phrase. Its
+20s timeout is deliberately far shorter than `ticket-generate.ts`'s 150s, since this is a
+background prefill on a modal the user may Start within seconds, not an explicit user-initiated
+wait. Output is double-screened (`DISPATCH_STATUS` marker rejection plus a hard length clamp) the
+same way `ticket-generate.ts` screens its own output. `POST /cards/group-title`
+(`cards.route.ts`) single-flights the route with its own `groupTitleInFlight` boolean, deliberately
+separate from `draftInFlight`, returning 409 on a concurrent call rather than fanning out parallel
+subprocesses. Abort is wired to `res.on("close")`, NOT `req.on("close")` — the latter fires the
+instant the request body is fully read, well before any response is sent, which is the exact bug
+`draftInFlight`'s own history records (`/cards/draft` silently aborted every real invocation until
+fixed); this route was written correctly from its first commit.
 
 ### Watcher Discriminator
 

@@ -19,6 +19,10 @@ import {
   hasDispatchMarker,
 } from "../services/domain/playbooks.js";
 import { generateTicketDraft } from "../services/orchestration/ticket-generate.js";
+import {
+  generateGroupTitlePhrase,
+  type GroupTitleMember,
+} from "../services/orchestration/group-title-generate.js";
 import { syncCardToLinear } from "../services/orchestration/linear-sync.js";
 
 export const cardsRouter = Router();
@@ -26,6 +30,7 @@ export const cardsRouter = Router();
 const MAX_DIRECTION_LEN = 10000;
 const MAX_TITLE_LEN = 300;
 const MAX_DESCRIPTION_LEN = 20000;
+const MAX_GROUP_TITLE_MEMBERS = 50;
 
 /**
  * `/move`'s own whitelist, distinct from `COLUMNS` (the board's render list). Inbox is a valid
@@ -581,6 +586,74 @@ cardsRouter.post("/cards/draft", (req, res) => {
     })
     .finally(() => {
       draftInFlight = false;
+    });
+});
+
+/**
+ * Module-level single-flight guard for `POST /cards/group-title` (`ORCH-05`), DELIBERATELY its OWN
+ * state — never shared with `draftInFlight` above: the two draft-generation surfaces (a local
+ * ticket draft, a group title phrase) are unrelated features a user could legitimately have open
+ * at once, mirroring that precedent's own split from `playbooks.route.ts`'s `generateInFlight`.
+ * Rejects a concurrent call with 409 rather than fanning out parallel `claude -p` subprocesses.
+ * @remarks Abort listens on `res`, NOT `req` — `req.on("close")` fires the instant the request
+ * body is fully read, well before any response is sent, which is exactly the bug `draftInFlight`'s
+ * own JSDoc above records as having silently aborted every real `/cards/draft` invocation until it
+ * was fixed. This route is written correctly from its first commit.
+ */
+let groupTitleInFlight = false;
+
+cardsRouter.post("/cards/group-title", (req, res) => {
+  const rawMemberIds = (req.body as { memberIds?: unknown } | undefined)
+    ?.memberIds;
+  if (
+    !Array.isArray(rawMemberIds) ||
+    rawMemberIds.length < 2 ||
+    rawMemberIds.length > MAX_GROUP_TITLE_MEMBERS ||
+    !rawMemberIds.every((id) => typeof id === "string")
+  ) {
+    res.status(400).json({ error: "invalid-member-ids" });
+    return;
+  }
+
+  const members: GroupTitleMember[] = rawMemberIds
+    .map((id) => store.getCard(id))
+    .filter((card): card is Card => card !== undefined)
+    .map((card) => ({
+      identifier: card.identifier,
+      title: card.title,
+      project: card.project?.name ?? null,
+    }));
+  if (members.length < 2) {
+    res.status(400).json({ error: "invalid-member-ids" });
+    return;
+  }
+
+  if (groupTitleInFlight) {
+    res.status(409).json({ error: "generate-in-progress" });
+    return;
+  }
+
+  groupTitleInFlight = true;
+  const controller = new AbortController();
+  res.on("close", () => {
+    if (!res.writableEnded) controller.abort();
+  });
+
+  generateGroupTitlePhrase(members, controller.signal)
+    .then((phrase) => {
+      if (controller.signal.aborted) return;
+      res.status(200).json({ phrase });
+    })
+    .catch((err) => {
+      if (controller.signal.aborted) return;
+      console.warn(
+        "[cards/group-title] generation failed:",
+        (err as Error).message,
+      );
+      res.status(502).json({ error: "generate-failed" });
+    })
+    .finally(() => {
+      groupTitleInFlight = false;
     });
 });
 
