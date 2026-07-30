@@ -2,7 +2,7 @@ import net from "node:net";
 import type { PreviewInfo } from "../../shared/types.js";
 import { listPrsForBranch, type PrProbeResult } from "./gh.js";
 import { panePidsBySession } from "./tmux.js";
-import { listeningPortsBySession } from "./dev-server.js";
+import { listeningPortsBySession, type DiscoveredPort } from "./dev-server.js";
 import { store } from "../store/board.store.js";
 
 /**
@@ -39,24 +39,13 @@ const previewFailureCounts = new Map<string, number>();
 
 let artifactDetectInFlight: Promise<void> | null = null;
 
-/**
- * Confirm a discovered port actually accepts a TCP connection before it is advertised as a
- * preview (F-07: a bound-but-unreachable LISTEN-only port is not the same claim as "answers").
- *
- * @remarks
- * Acceptance is TCP handshake completion ALONE — never an HTTP request or status code. An
- * HTTP-status probe would wrongly reject a real dev server whose `/` returns 404 (a common shape
- * for an API-only or SPA dev server with no index route) and would fail a TLS-only dev server
- * outright, whereas a bare connect asserts nothing about the application protocol above it. The
- * accepted limitation: a process wedged past its own accept queue still passes this probe — the
- * same tradeoff `ttyd.ts`'s `probeAdoption` already accepts in this codebase.
- */
-function confirmReachable(
+function connectOnce(
+  host: string,
   port: number,
-  timeoutMs = PREVIEW_PROBE_TIMEOUT_MS,
+  timeoutMs: number,
 ): Promise<boolean> {
   return new Promise((resolve) => {
-    const sock = net.connect({ host: "127.0.0.1", port });
+    const sock = net.connect({ host, port });
     const done = (ok: boolean) => {
       sock.destroy();
       resolve(ok);
@@ -65,6 +54,38 @@ function confirmReachable(
     sock.once("error", () => done(false));
     sock.setTimeout(timeoutMs, () => done(false));
   });
+}
+
+/**
+ * Confirm a discovered port actually accepts a TCP connection before it is advertised as a
+ * preview (F-07: a bound-but-unreachable LISTEN-only port is not the same claim as "answers").
+ *
+ * @remarks
+ * The dialled host comes from the candidate's own `lsof`-reported bind address
+ * (`dev-server.ts`'s `PROBE_HOSTS_FOR_BIND`), never a hardcoded `127.0.0.1`: discovery accepts an
+ * IPv6-loopback bind, a `::1`-only listener refuses an IPv4 connect outright, and a dev server
+ * started on `localhost` binds `::1` first under Node 17+'s verbatim DNS default — so assuming IPv4
+ * turned a working dev server into a confident "nothing is listening". A bind that maps to both
+ * families passes on either, since the claim being confirmed is only that SOMETHING still accepts
+ * at `http://localhost:<port>`.
+ *
+ * Acceptance is TCP handshake completion ALONE — never an HTTP request or status code. An
+ * HTTP-status probe would wrongly reject a real dev server whose `/` returns 404 (a common shape
+ * for an API-only or SPA dev server with no index route) and would fail a TLS-only dev server
+ * outright, whereas a bare connect asserts nothing about the application protocol above it. The
+ * accepted limitation: a process wedged past its own accept queue still passes this probe — the
+ * same tradeoff `ttyd.ts`'s `probeAdoption` already accepts in this codebase.
+ */
+async function confirmReachable(
+  candidate: DiscoveredPort,
+  timeoutMs = PREVIEW_PROBE_TIMEOUT_MS,
+): Promise<boolean> {
+  const results = await Promise.all(
+    candidate.probeHosts.map((host) =>
+      connectOnce(host, candidate.port, timeoutMs),
+    ),
+  );
+  return results.some(Boolean);
 }
 
 /**
@@ -116,7 +137,7 @@ async function runArtifactDetection(backendPort: number): Promise<void> {
   }
 
   const panePids = await panePidsBySession();
-  let portsBySession: Map<string, number[]> | null = null;
+  let portsBySession: Map<string, DiscoveredPort[]> | null = null;
   if (panePids != null) {
     const sessionNames = new Set(
       cards.map((c) => c.tmuxSession).filter((s): s is string => s != null),
@@ -188,14 +209,16 @@ async function runArtifactDetection(backendPort: number): Promise<void> {
         await store.setPreviewsUnknownIfSession(card.id, session, null);
       }
 
-      const ports = portsBySession.get(session) ?? [];
-      const candidates = ports.filter((port) => !excludedPorts.has(port));
+      const discovered = portsBySession.get(session) ?? [];
+      const candidates = discovered.filter(
+        (candidate) => !excludedPorts.has(candidate.port),
+      );
       const reachable = await Promise.all(
-        candidates.map((port) => confirmReachable(port)),
+        candidates.map((candidate) => confirmReachable(candidate)),
       );
       const next: PreviewInfo[] = candidates
-        .filter((_port, i) => reachable[i])
-        .map((port) => ({ port, url: `http://localhost:${port}` }));
+        .filter((_candidate, i) => reachable[i])
+        .map(({ port }) => ({ port, url: `http://localhost:${port}` }));
       if (JSON.stringify(card.previews ?? []) === JSON.stringify(next)) return;
       await store.setPreviewsIfSession(card.id, session, next);
     }),

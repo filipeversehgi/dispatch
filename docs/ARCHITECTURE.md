@@ -1291,10 +1291,22 @@ Reconcile](#resilience-and-reconcile) for the counter mechanics shared with `RES
 
 **A discovered port is advertised only after a short bare-TCP-connect confirmation (F-07).**
 `confirmReachable` (`adapters/artifact-detect.ts`, mirroring `ttyd.ts`'s `probeAdoption`) opens a
-bare `net.connect` to `127.0.0.1:<port>` with a 500ms timeout and accepts on TCP handshake
-completion alone — never an HTTP request or status code, since an HTTP-status probe would wrongly
-reject a real dev server whose `/` returns 404 (common for an API-only or SPA dev server) and would
-fail a TLS-only dev server outright. LISTEN state alone is not "answers".
+bare `net.connect` with a 500ms timeout and accepts on TCP handshake completion alone — never an
+HTTP request or status code, since an HTTP-status probe would wrongly reject a real dev server whose
+`/` returns 404 (common for an API-only or SPA dev server) and would fail a TLS-only dev server
+outright. LISTEN state alone is not "answers".
+
+**The probe dials the address family `lsof` reported, never a hardcoded `127.0.0.1`.** Discovery
+accepts an IPv6-loopback bind, and a `::1`-only listener refuses an IPv4 connect outright — so an
+IPv4-only probe rejected a live dev server and, because a rejected candidate takes the SUCCESSFUL
+zero-preview path, published a confident "nothing is listening" for a server the user could open in
+the same browser. `listeningPortsBySession` therefore returns a `DiscoveredPort` carrying the
+loopback host(s) its bind address maps to (`dev-server.ts`'s `PROBE_HOSTS_FOR_BIND`), and
+`confirmReachable` dials exactly those. This matters on macOS specifically: since Node 17's
+`verbatim: true` DNS default, `listen(port, "localhost")` — the most common host argument a dev
+server is given — binds `::1` first. Mapping per bind rather than probing both families
+unconditionally also keeps the confirmation narrow: a card's port can never be confirmed by a socket
+some unrelated process holds on the other family.
 
 **The exclusion set now covers every Dispatch-owned port, not just the card's own `ttydPort`
 (F-09).** Built ONCE per tick — the backend's own resolved listen port plus every live card's

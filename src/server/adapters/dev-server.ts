@@ -1,27 +1,46 @@
 import { run } from "./exec.js";
 
 /**
- * Bind addresses a `http://localhost:<port>` link actually reaches.
+ * Bind addresses a `http://localhost:<port>` link actually reaches, mapped to the loopback host(s)
+ * a reachability probe for that bind must dial.
  *
  * @remarks
- * The preview badge asserts reachability, and the design has no dead/stale state to fall back on,
- * so a bind this list does not cover must not produce a badge at all. A server bound to a specific
- * LAN address is genuinely NOT reachable at `localhost`, and matching on the port alone would
- * promise otherwise.
+ * Membership is the badge gate: the preview badge asserts reachability and the design has no
+ * dead/stale state to fall back on, so a bind this map does not cover must not produce a badge at
+ * all. A server bound to a specific LAN address is genuinely NOT reachable at `localhost`, and
+ * matching on the port alone would promise otherwise.
+ *
+ * The VALUE exists because an address family is not interchangeable with the other: a listener
+ * bound only to `::1` refuses a `127.0.0.1` connect outright, and since Node 17's `verbatim: true`
+ * DNS default `listen(port, "localhost")` binds `::1` first on macOS — the single most common host
+ * argument a dev server is given. A probe that assumed IPv4 therefore rejected a server the user
+ * can open in the browser and then reported it as "nothing is listening". Probing the family `lsof`
+ * actually reported is also strictly narrower than probing both unconditionally: it cannot confirm
+ * a card's port via a socket some unrelated process happens to hold on the other family.
  */
-const LOCALLY_REACHABLE = new Set([
-  "*",
-  "0.0.0.0",
-  "127.0.0.1",
-  "localhost",
-  "[::]",
-  "[::1]",
-  "::1",
+const PROBE_HOSTS_FOR_BIND = new Map<string, string[]>([
+  ["*", ["127.0.0.1", "::1"]],
+  ["0.0.0.0", ["127.0.0.1"]],
+  ["127.0.0.1", ["127.0.0.1"]],
+  ["localhost", ["127.0.0.1", "::1"]],
+  ["[::]", ["::1", "127.0.0.1"]],
+  ["[::1]", ["::1"]],
+  ["::1", ["::1"]],
 ]);
 
 /**
+ * One discovered listening port plus the loopback host(s) a reachability probe must dial for it,
+ * derived from the bind address `lsof` reported rather than assumed to be IPv4.
+ */
+export interface DiscoveredPort {
+  port: number;
+  probeHosts: string[];
+}
+
+/**
  * Every listening TCP port owned by each named session's process tree, keyed by session name —
- * an entry for EVERY key in `panePids`, deduplicated and sorted ascending. Read-only diagnostic
+ * an entry for EVERY key in `panePids`, deduplicated and sorted ascending by port, each carrying
+ * the loopback host(s) its `lsof`-reported bind address must be probed on. Read-only diagnostic
  * with a fixed argv array and only `Number()`-parsed integers interpolated (never a shell string,
  * never client input). Goes through the `adapters/exec.ts` chokepoint like every other subprocess
  * caller: `run()` surfaces `.code` alongside `.stdout`, which is all the exit-1 discrimination
@@ -59,7 +78,7 @@ const LOCALLY_REACHABLE = new Set([
  */
 export async function listeningPortsBySession(
   panePids: Map<string, number[]>,
-): Promise<Map<string, number[]> | null> {
+): Promise<Map<string, DiscoveredPort[]> | null> {
   if (panePids.size === 0) return new Map();
 
   let psOut: string;
@@ -97,7 +116,7 @@ export async function listeningPortsBySession(
     }
   }
 
-  const result = new Map<string, number[]>();
+  const result = new Map<string, DiscoveredPort[]>();
   for (const session of panePids.keys()) result.set(session, []);
   if (allPids.length === 0) return result;
 
@@ -117,6 +136,7 @@ export async function listeningPortsBySession(
     }
   }
 
+  const hostsByPort = new Map<string, Map<number, Set<string>>>();
   let currentPid: number | null = null;
   for (const line of lsofOut.split("\n")) {
     if (line.startsWith("p")) {
@@ -124,17 +144,25 @@ export async function listeningPortsBySession(
     } else if (line.startsWith("n") && currentPid !== null) {
       const m = line.slice(1).match(/^(.*):(\d+)$/);
       if (!m) continue;
-      if (!LOCALLY_REACHABLE.has(m[1])) continue;
+      const probeHosts = PROBE_HOSTS_FOR_BIND.get(m[1]);
+      if (probeHosts == null) continue;
       const session = sessionOfPid.get(currentPid);
       if (session == null) continue;
-      result.get(session)?.push(Number(m[2]));
+      const byPort = hostsByPort.get(session) ?? new Map<number, Set<string>>();
+      hostsByPort.set(session, byPort);
+      const port = Number(m[2]);
+      const hosts = byPort.get(port) ?? new Set<string>();
+      for (const host of probeHosts) hosts.add(host);
+      byPort.set(port, hosts);
     }
   }
 
-  for (const [session, ports] of result) {
+  for (const [session, byPort] of hostsByPort) {
     result.set(
       session,
-      [...new Set(ports)].sort((a, b) => a - b),
+      [...byPort.entries()]
+        .sort(([a], [b]) => a - b)
+        .map(([port, hosts]) => ({ port, probeHosts: [...hosts] })),
     );
   }
   return result;
