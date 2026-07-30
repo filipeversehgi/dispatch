@@ -781,8 +781,8 @@ class BoardStore extends EventEmitter {
 
   /**
    * Record (or clear, passing `null`) this tick's preview-probe failure category, ONLY if the card
-   * still names `session` as its tmux session — byte-for-byte the `setPrsUnknownIfSession` shape,
-   * consumed starting in Plan 05. No-op if the id is unknown.
+   * still names `session` as its tmux session — byte-for-byte the `setPrsUnknownIfSession` shape.
+   * No-op if the id is unknown.
    */
   setPreviewsUnknownIfSession(
     id: string,

@@ -180,7 +180,7 @@ export interface Card {
    * could not be fully trusted this tick. NON-SECRET: rides `snapshot()` UNREDACTED, same rationale
    * as `prsUnknown`. Absent means the last check either succeeded with data or was confirmed
    * genuinely empty. Set on the first failed check, cleared on the next success, and cleared by
-   * every session-teardown path that also clears `previews`. Consumed starting in Plan 05.
+   * every session-teardown path that also clears `previews`.
    */
   previewsUnknown?: ProbeUnknown;
   /** tmux session name hosting the claude REPL. */
