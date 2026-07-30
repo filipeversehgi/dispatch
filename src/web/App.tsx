@@ -111,12 +111,6 @@ export function App() {
     } catch {}
   }, [viewMode]);
 
-  useEffect(() => {
-    if (viewMode !== "orca") return;
-    const id = setTimeout(() => setInboxOpen(false), 0);
-    return () => clearTimeout(id);
-  }, [viewMode]);
-
   const lastOpened = useLastOpened();
   const newestTs = feed.events[0]?.ts;
   const activityUnseen = isUnseen(newestTs, lastOpened["__feed__"]);
@@ -272,7 +266,10 @@ export function App() {
             inboxOpen={inboxOpen}
             onOpenCreateTicket={() => setCreateTicketOpen(true)}
             viewMode={viewMode}
-            onSelectViewMode={setViewMode}
+            onSelectViewMode={(mode) => {
+              setViewMode(mode);
+              if (mode === "orca") setInboxOpen(false);
+            }}
           />
         </>
       }
