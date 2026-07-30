@@ -74,7 +74,10 @@ export function GroupStartModal({
           return;
         setTitle(composeGroupTitle(result.phrase, members));
       })
-      .catch(() => {});
+      .catch((err: unknown) => {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        console.warn("group title generation failed", err);
+      });
     return () => controller.abort();
   }, [members]);
 
