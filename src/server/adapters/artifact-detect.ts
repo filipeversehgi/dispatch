@@ -1,3 +1,4 @@
+import net from "node:net";
 import type { PreviewInfo } from "../../shared/types.js";
 import { listPrsForBranch, type PrProbeResult } from "./gh.js";
 import { panePidsBySession } from "./tmux.js";
@@ -10,7 +11,38 @@ import { store } from "../store/board.store.js";
  */
 const ARTIFACT_DETECT_INTERVAL_MS = 10_000;
 
+/** Bare-TCP-connect confirmation timeout for a single discovered preview port candidate. */
+const PREVIEW_PROBE_TIMEOUT_MS = 500;
+
 let artifactDetectInFlight: Promise<void> | null = null;
+
+/**
+ * Confirm a discovered port actually accepts a TCP connection before it is advertised as a
+ * preview (F-07: a bound-but-unreachable LISTEN-only port is not the same claim as "answers").
+ *
+ * @remarks
+ * Acceptance is TCP handshake completion ALONE — never an HTTP request or status code. An
+ * HTTP-status probe would wrongly reject a real dev server whose `/` returns 404 (a common shape
+ * for an API-only or SPA dev server with no index route) and would fail a TLS-only dev server
+ * outright, whereas a bare connect asserts nothing about the application protocol above it. The
+ * accepted limitation: a process wedged past its own accept queue still passes this probe — the
+ * same tradeoff `ttyd.ts`'s `probeAdoption` already accepts in this codebase.
+ */
+function confirmReachable(
+  port: number,
+  timeoutMs = PREVIEW_PROBE_TIMEOUT_MS,
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    const sock = net.connect({ host: "127.0.0.1", port });
+    const done = (ok: boolean) => {
+      sock.destroy();
+      resolve(ok);
+    };
+    sock.once("connect", () => done(true));
+    sock.once("error", () => done(false));
+    sock.setTimeout(timeoutMs, () => done(false));
+  });
+}
 
 /**
  * Fan out the combined per-card artifact detection (PR lookup + dev-server preview scan) across
@@ -39,9 +71,22 @@ async function detectCardArtifacts(backendPort: number): Promise<void> {
  * `prs` and sets `prsUnknown` — so a card with one succeeding and one failing repo shows both the
  * succeeding repo's PRs AND the unknown badge at once. Both the `prs` and `prsUnknown` writes carry
  * their own write-skip diff so an unchanged tick never rebroadcasts.
+ *
+ * Preview exclusion (F-09) is a `Set<number>` built ONCE per tick — `backendPort` plus every live
+ * card's `ttydPort` — rather than checking only the current card's own field, so a stale, freed
+ * ttyd port picked up moments later by a DIFFERENT card's real dev server can no longer leak into
+ * that card's previews. A discovered candidate that survives the exclusion set still needs a
+ * `confirmReachable` pass (F-07) before it becomes a `PreviewInfo`; a discovered-but-unreachable
+ * port is a SUCCESSFUL tick that found zero confirmed previews (the `[]` case), never a tool
+ * failure — only a `null` return from `panePidsBySession`/`listeningPortsBySession` is that.
  */
 async function runArtifactDetection(backendPort: number): Promise<void> {
   const cards = store.cardsWithSession();
+
+  const excludedPorts = new Set<number>([backendPort]);
+  for (const card of cards) {
+    if (card.ttydPort != null) excludedPorts.add(card.ttydPort);
+  }
 
   const panePids = await panePidsBySession();
   let portsBySession: Map<string, number[]> | null = null;
@@ -88,8 +133,12 @@ async function runArtifactDetection(backendPort: number): Promise<void> {
 
       if (portsBySession == null) return;
       const ports = portsBySession.get(session) ?? [];
-      const next: PreviewInfo[] = ports
-        .filter((port) => port !== card.ttydPort && port !== backendPort)
+      const candidates = ports.filter((port) => !excludedPorts.has(port));
+      const reachable = await Promise.all(
+        candidates.map((port) => confirmReachable(port)),
+      );
+      const next: PreviewInfo[] = candidates
+        .filter((_port, i) => reachable[i])
         .map((port) => ({ port, url: `http://localhost:${port}` }));
       if (JSON.stringify(card.previews ?? []) === JSON.stringify(next)) return;
       await store.setPreviewsIfSession(card.id, session, next);

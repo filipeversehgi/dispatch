@@ -1271,9 +1271,19 @@ detection succeeded and genuinely found nothing — the caller clears the field.
 two into one signal would either wipe a live card's badges on a transient tool hiccup, or wedge a
 dead port's badge on the board forever.
 
-**The card's own `ttydPort` is excluded** from the ports attributed to its session before the
-write — the writable terminal iframe's own port must never be offered back as a one-click
-"preview" link.
+**A discovered port is advertised only after a short bare-TCP-connect confirmation (F-07).**
+`confirmReachable` (`adapters/artifact-detect.ts`, mirroring `ttyd.ts`'s `probeAdoption`) opens a
+bare `net.connect` to `127.0.0.1:<port>` with a 500ms timeout and accepts on TCP handshake
+completion alone — never an HTTP request or status code, since an HTTP-status probe would wrongly
+reject a real dev server whose `/` returns 404 (common for an API-only or SPA dev server) and would
+fail a TLS-only dev server outright. LISTEN state alone is not "answers".
+
+**The exclusion set now covers every Dispatch-owned port, not just the card's own `ttydPort`
+(F-09).** Built ONCE per tick — the backend's own resolved listen port plus every live card's
+`ttydPort` — rather than checking only the current card's own field, so a stale, freed ttyd port
+picked up moments later by an unrelated card's real dev server can no longer leak into that
+DIFFERENT card's previews. See [Known Residuals](#known-residuals) for the one gap this exclusion
+set does not cover (the Vite dev port).
 
 **`previews` rides both wire and disk exactly like `prs`.** No `buildMeta`-style per-card disk
 filter exists (`board-db.ts` `JSON.stringify(card)`s the whole card unfiltered), so there is
@@ -1517,3 +1527,17 @@ CleanupModal's "Keep workspace" button previously had no hover background/lift a
 uniform one. Resting-state pixels are identical everywhere. Deliberately NOT made opt-out: a
 `plain`/no-hover variant would fragment the primitive API for three call sites whose divergence
 was historical accident, not design intent.
+
+### Vite dev port is not in the preview exclusion set
+
+The preview exclusion set (`adapters/artifact-detect.ts`) covers the backend's own resolved listen
+port and every card's `ttydPort`, but NOT the Vite dev server's own port (F-09). `vite.config.ts`
+sets no explicit `server.port` (only a `server.proxy` block for `/api/`/`/sessions/`) and
+`package.json`'s `"dev"` script passes no port to either process, so the backend has no way to
+introspect Vite's chosen port at runtime — it is never told it. The gap is real only under `npm run
+dev`: in production the built SPA is served from the SAME Express origin the API already listens
+on (`bootstrap/index.ts`'s `NODE_ENV === "production"` static-serving branch), so there is no
+separate Vite port to exclude at all. The bounded consequence is a `npm run dev`-only possibility
+that the Vite dev port is surfaced as a preview on some OTHER card's board entry if a session's
+process tree happens to include it — accepted and recorded here rather than silently claimed
+excluded.
