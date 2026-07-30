@@ -58,20 +58,25 @@ export function MemberRow({
       >
         {member.title}
       </span>
-      {groupPrsUnknown != null ? (
-        <UnknownProbeBadge signal="pr" category={groupPrsUnknown.category} />
-      ) : (
-        groupPr?.map((pr) => <PrBadge key={pr.url} pr={pr} />)
+      {groupPr?.map((pr) => (
+        <PrBadge key={pr.url} pr={pr} />
+      ))}
+      {groupPrsUnknown != null && (
+        <UnknownProbeBadge
+          signal="pr"
+          category={groupPrsUnknown.category}
+          partial={(groupPr?.length ?? 0) > 0}
+        />
       )}
-      {groupPreviewsUnknown != null ? (
+      {groupPreviews?.map((preview) => (
+        <PreviewBadge key={preview.port} preview={preview} />
+      ))}
+      {groupPreviewsUnknown != null && (
         <UnknownProbeBadge
           signal="preview"
           category={groupPreviewsUnknown.category}
+          partial={(groupPreviews?.length ?? 0) > 0}
         />
-      ) : (
-        groupPreviews?.map((preview) => (
-          <PreviewBadge key={preview.port} preview={preview} />
-        ))
       )}
       <SourceBadge source={member.source ?? "linear"} />
       {member.source === "linear" && member.url != null && (

@@ -5,11 +5,13 @@ import { unknownProbeCopy } from "../badges/index.js";
 export function UnknownProbeRow({
   signal,
   category,
+  partial,
 }: {
   signal: "pr" | "preview";
   category: ProbeFailureCategory;
+  partial?: boolean;
 }) {
-  const { label, detail } = unknownProbeCopy(signal, category);
+  const { label, detail } = unknownProbeCopy(signal, category, partial);
   return (
     <div
       style={{ display: "flex", alignItems: "center", gap: "var(--space-sm)" }}

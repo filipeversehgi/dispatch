@@ -4,11 +4,13 @@ import { unknownProbeCopy } from "./unknown-probe-copy.js";
 export function UnknownProbeBadge({
   signal,
   category,
+  partial,
 }: {
   signal: "pr" | "preview";
   category: ProbeFailureCategory;
+  partial?: boolean;
 }) {
-  const { label, detail } = unknownProbeCopy(signal, category);
+  const { label, detail } = unknownProbeCopy(signal, category, partial);
   return (
     <span
       title={detail}

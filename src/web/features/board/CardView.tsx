@@ -281,23 +281,25 @@ export function CardView({
           >
             <SourceBadge source={card.source ?? "linear"} />
             <LinearStateBadge card={card} />
-            {card.prsUnknown != null ? (
+            {card.prs?.map((pr) => (
+              <PrBadge key={pr.url} pr={pr} />
+            ))}
+            {card.prsUnknown != null && (
               <UnknownProbeBadge
                 signal="pr"
                 category={card.prsUnknown.category}
+                partial={(card.prs?.length ?? 0) > 0}
               />
-            ) : (
-              card.prs?.map((pr) => <PrBadge key={pr.url} pr={pr} />)
             )}
-            {card.previewsUnknown != null ? (
+            {card.previews?.map((preview) => (
+              <PreviewBadge key={preview.port} preview={preview} />
+            ))}
+            {card.previewsUnknown != null && (
               <UnknownProbeBadge
                 signal="preview"
                 category={card.previewsUnknown.category}
+                partial={(card.previews?.length ?? 0) > 0}
               />
-            ) : (
-              card.previews?.map((preview) => (
-                <PreviewBadge key={preview.port} preview={preview} />
-              ))
             )}
             {isGroup && (
               <span
