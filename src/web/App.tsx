@@ -112,15 +112,6 @@ export function App() {
   }, [viewMode]);
 
   useEffect(() => {
-    if (!inboxOpen) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setInboxOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [inboxOpen]);
-
-  useEffect(() => {
     if (viewMode !== "orca") return;
     const id = setTimeout(() => setInboxOpen(false), 0);
     return () => clearTimeout(id);
@@ -190,6 +181,24 @@ export function App() {
   const [settingsInitialTab, setSettingsInitialTab] =
     useState<SettingsTab>("filters");
   const [createTicketOpen, setCreateTicketOpen] = useState(false);
+
+  const overlayAboveContent =
+    selectedCard != null ||
+    activityOpen ||
+    settingsOpen ||
+    createTicketOpen ||
+    cleanupCard != null ||
+    (startCard != null && startRequest != null);
+
+  useEffect(() => {
+    if (!inboxOpen || overlayAboveContent) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      setInboxOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [inboxOpen, overlayAboveContent]);
 
   const [setupState, setSetupState] = useState<
     "loading" | "needsKey" | "ready"
