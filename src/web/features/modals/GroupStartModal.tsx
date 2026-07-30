@@ -65,7 +65,13 @@ export function GroupStartModal({
     )
       .then((result) => {
         if (!result.ok) return;
-        if (!shouldAcceptGeneratedPhrase(userHasEditedRef.current)) return;
+        if (
+          !shouldAcceptGeneratedPhrase(
+            userHasEditedRef.current,
+            titleRef.current,
+          )
+        )
+          return;
         setTitle(composeGroupTitle(result.phrase, members));
       })
       .catch(() => {});

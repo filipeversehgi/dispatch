@@ -117,14 +117,32 @@ export function deterministicGroupTitle(members: Card[]): string {
 }
 
 /**
- * The `MODAL-01` no-visible-wait gate: a background-generated phrase may replace the title
- * field's current value ONLY when the user has not typed since the deterministic default (Plan
- * 78-01) was set.
+ * The `MODAL-01` no-visible-wait gate: a background-generated phrase may replace the title field's
+ * current value ONLY when the user has neither typed nor parked a caret inside it.
  * @remarks The caller MUST NEVER gate Start, disable any control, or show any loading indicator on
  * this predicate or on the generation promise settling — generation is a pure enhancement that
  * lands or does not.
+ * @remarks Typing is not the only way to claim the field. The input is autofocused on open, so a
+ * user can click between two words intending to insert a qualifier and then pause to read the
+ * member list; a swap arriving seconds later replaces the whole value and drops the caret at the
+ * end of a DIFFERENT string, so their next keystrokes land somewhere they did not choose. An
+ * interaction, not just a mutation, therefore blocks the swap.
+ * @remarks The test is deliberately "is the caret parked INSIDE the text", not "is the caret at the
+ * end". A programmatically focused input's initial selection is browser-dependent — collapsed at
+ * offset 0 in some engines, at the end in others — and neither is a user intent. An end-anchored
+ * test would treat the offset-0 default as a claimed field and suppress every swap, silently
+ * disabling the feature. Both defaults sit at an edge, so an inside-caret test reads them as
+ * untouched. A non-collapsed selection is unambiguous user intent at any offset and always blocks.
  * @see docs/ARCHITECTURE.md#group-card-titles
  */
-export function shouldAcceptGeneratedPhrase(userHasEdited: boolean): boolean {
-  return !userHasEdited;
+export function shouldAcceptGeneratedPhrase(
+  userHasEdited: boolean,
+  input: HTMLInputElement | null,
+): boolean {
+  if (userHasEdited) return false;
+  if (input === null || document.activeElement !== input) return true;
+  const { selectionStart, selectionEnd, value } = input;
+  if (selectionStart === null || selectionEnd === null) return true;
+  if (selectionStart !== selectionEnd) return false;
+  return selectionStart === 0 || selectionStart === value.length;
 }
