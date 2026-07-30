@@ -356,6 +356,17 @@ dead probe cannot leave a stale PR or port sitting on the board forever. Both co
 pruned every tick to `store.cardsWithSession()`'s current ids so a torn-down card's streak can never
 resurrect against a reused id.
 
+**The ceiling governs stale data only, never data fetched in the same tick.** A multi-repo card's PR
+probe fans out per repo, and the counter advances when ANY repo fails — so a single permanently
+unresolvable repo (a sibling owned by an inactive `gh` account is the everyday case) drives the
+counter up without bound while its neighbours keep answering. Forcing `prs` to `[]` on that counter
+deleted the neighbour's freshly-fetched, live PR and, because the write-skip diff then matched every
+subsequent tick, it stayed deleted until the failing repo recovered. Repos that answered `ok: true`
+this tick are therefore always written through; the ceiling applies only when NO repo answered,
+where it is genuinely choosing between stale data and nothing. Below the ceiling in that
+total-failure case the write is suppressed outright rather than writing an empty list, which is what
+makes "left alone below the ceiling" true of the PR path and not just the preview path.
+
 **Boot reconcile — persisted-name comparison (`IN-01`).** For every card that still holds a session,
 reconcile compares against the PERSISTED session name (`card.tmuxSession`), falling back to the
 derived `dsp-<identifier>` ONLY when absent. Linear identifiers change when an issue moves teams: the

@@ -26,7 +26,9 @@ const PREVIEW_PROBE_TIMEOUT_MS = 500;
  * candidate, which is a SUCCESSFUL tick that confirmed zero previews and resets the counter
  * instead. The unknown status is set on the first failure so a silent tooling failure is visible
  * at once; the data field is cleared only once the ceiling is reached, so a single blip never
- * wipes last-known-good.
+ * wipes last-known-good. The ceiling exists to stop advertising STALE data, so it never applies to
+ * a signal some source answered successfully in the same tick — a permanently-failing sibling repo
+ * must not delete a live PR its neighbour just fetched.
  * @see docs/ARCHITECTURE.md#resilience-and-reconcile
  */
 const PROBE_FAILURE_CEILING = 3;
@@ -108,14 +110,17 @@ async function detectCardArtifacts(backendPort: number): Promise<void> {
 
 /**
  * @remarks
- * Per-repo PR outcomes (F-03/F-04): `next` flattens only the `ok: true` entries, while any
+ * Per-repo PR outcomes (F-03/F-04): `finalPrs` flattens only the `ok: true` entries, while any
  * `ok: false` entry sets `prsUnknown` to the first failing repo's category and advances
- * `prFailureCounts` (`RESIL-02`) — reset to zero on a tick where every repo answers. The `prs`
- * write is the succeeding repos' data below the ceiling, so a card with one succeeding and one
- * failing repo shows both the succeeding repo's PRs AND the unknown badge at once; at or above
- * `PROBE_FAILURE_CEILING` consecutive failing ticks the write is forced to `[]` instead, so a
- * permanently-failing repo cannot leave a stale PR sitting on the board forever. Both the `prs`
- * and `prsUnknown` writes carry their own write-skip diff so an unchanged tick never rebroadcasts.
+ * `prFailureCounts` (`RESIL-02`) — reset to zero on a tick where every repo answers. Data a repo
+ * returned `ok: true` in THIS tick is never discarded, whatever the counter says: it is freshly
+ * fetched, not stale, so a card with one succeeding and one permanently-failing repo keeps showing
+ * the succeeding repo's PRs alongside the unknown badge indefinitely. The ceiling therefore only
+ * governs the case it was written for — NO repo answered — where `holdLastKnownPrs` suppresses the
+ * write entirely below `PROBE_FAILURE_CEILING` (last-known-good survives a blip) and lets the
+ * empty `finalPrs` through at or above it, so a totally dead probe cannot leave a stale PR on the
+ * board forever. Both the `prs` and `prsUnknown` writes carry their own write-skip diff so an
+ * unchanged tick never rebroadcasts.
  *
  * Preview exclusion (F-09) is a `Set<number>` built ONCE per tick — `backendPort` plus every live
  * card's `ttydPort` — rather than checking only the current card's own field, so a stale, freed
@@ -158,12 +163,14 @@ async function runArtifactDetection(backendPort: number): Promise<void> {
         const results = await Promise.all(
           repos.map((repo) => listPrsForBranch(repo.path, branch)),
         );
+        const answered = results.filter(
+          (r): r is Extract<PrProbeResult, { ok: true }> => r.ok,
+        );
         const failed = results.filter(
           (r): r is Extract<PrProbeResult, { ok: false }> => !r.ok,
         );
-        let finalPrs = results
-          .filter((r): r is Extract<PrProbeResult, { ok: true }> => r.ok)
-          .flatMap((r) => r.prs);
+        const finalPrs = answered.flatMap((r) => r.prs);
+        let holdLastKnownPrs = false;
 
         if (failed.length > 0) {
           const count = (prFailureCounts.get(card.id) ?? 0) + 1;
@@ -174,7 +181,8 @@ async function runArtifactDetection(backendPort: number): Promise<void> {
               category,
             });
           }
-          if (count >= PROBE_FAILURE_CEILING) finalPrs = [];
+          holdLastKnownPrs =
+            answered.length === 0 && count < PROBE_FAILURE_CEILING;
         } else {
           prFailureCounts.delete(card.id);
           if (card.prsUnknown != null) {
@@ -182,7 +190,10 @@ async function runArtifactDetection(backendPort: number): Promise<void> {
           }
         }
 
-        if (JSON.stringify(card.prs ?? []) !== JSON.stringify(finalPrs)) {
+        if (
+          !holdLastKnownPrs &&
+          JSON.stringify(card.prs ?? []) !== JSON.stringify(finalPrs)
+        ) {
           await store.setPrsIfSession(card.id, session, finalPrs);
         }
       }
