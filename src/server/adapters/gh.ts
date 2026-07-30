@@ -1,5 +1,5 @@
 import { run } from "./exec.js";
-import type { PrInfo } from "../../shared/types.js";
+import type { PrInfo, ProbeFailureCategory } from "../../shared/types.js";
 
 interface GhCheckRun {
   status?: string;
@@ -19,6 +19,13 @@ interface GhPrResult {
 }
 
 const loggedCategories = new Set<string>();
+
+/**
+ * The outcome of a `gh pr list` lookup for one repo: either the mapped PR list, or the failure
+ * category the caller must surface as "could not check" (F-03/F-04).
+ */
+export type PrProbeResult =
+  { ok: true; prs: PrInfo[] } | { ok: false; category: ProbeFailureCategory };
 
 /**
  * Reduce a `statusCheckRollup` into the badge's single CI verdict, in fixed precedence: no checks
@@ -62,8 +69,7 @@ function rollupOf(checks: GhCheckRun[]): "pass" | "fail" | "pending" | null {
 }
 
 /**
- * The PR(s) `gh pr list` reports for `branch` in `repoPath`, or `null` when the lookup itself
- * failed.
+ * The PR(s) `gh pr list` reports for `branch` in `repoPath`, as a `PrProbeResult`.
  *
  * @remarks
  * `--state all` is required, not incidental: `gh pr list` defaults to open PRs only, so the tick
@@ -71,20 +77,27 @@ function rollupOf(checks: GhCheckRun[]): "pass" | "fail" | "pending" | null {
  * merged or closed PR keeps its badge. `--limit` bounds the historical PRs a long-lived reused
  * branch can accumulate under that flag.
  *
- * The `null`-vs-`[]` split matters: `[]` means the lookup succeeded and this branch genuinely has
- * no PR, which must clear the card; `null` means the lookup failed and the caller must leave the
- * last known value alone, so a transient timeout cannot wipe a badge and re-broadcast it. Never
- * rethrows — a missing or unauthenticated `gh` must read as an absence, never a card-visible error.
+ * The three-state result matters: `{ ok: true, prs: [] }` means the lookup succeeded and this
+ * branch genuinely has no PR, which must clear the card; `{ ok: false, category }` means the
+ * lookup failed and the caller must leave the last known value alone AND surface `category` as
+ * unknown, so a transient timeout cannot wipe a badge and silently pass as "no PR". Never rethrows
+ * — a missing or unauthenticated `gh` must read as an absence, never a thrown card-visible error.
  * Each failure category logs once (T-04-04): the classification happens here rather than at the
  * call site because the category is only derivable from the error object, and passing raw `gh`
  * stderr upward would leak it into a log this contract promises stays content-free. The latch is
  * per category rather than a single global bool so the first transient failure cannot permanently
- * mask a later, different one — this feature's only diagnostic.
+ * mask a later, different one. The category now ALSO rides the return value (F-03/F-04) — it does
+ * not stop being logged.
+ *
+ * The `"gh not authenticated"` branch additionally matches the GraphQL
+ * `"Could not resolve to a Repository"` substring, captured live on `gh` 2.96.0 against a real
+ * repo owned by the machine's inactive `gh` account (F-04) — NOT a bare `NOT_FOUND` token, which
+ * also fires for a typo'd remote (a configuration problem, not an authentication one).
  */
 export async function listPrsForBranch(
   repoPath: string,
   branch: string,
-): Promise<PrInfo[] | null> {
+): Promise<PrProbeResult> {
   try {
     const { stdout } = await run(
       "gh",
@@ -103,26 +116,31 @@ export async function listPrsForBranch(
       { cwd: repoPath, timeout: 8000 },
     );
     const raw = JSON.parse(stdout) as GhPrResult[];
-    return raw.map((pr) => ({
-      number: pr.number,
-      url: pr.url,
-      title: pr.title,
-      state: pr.state.toLowerCase() as PrInfo["state"],
-      isDraft: pr.isDraft,
-      ci: rollupOf(pr.statusCheckRollup),
-    }));
+    return {
+      ok: true,
+      prs: raw.map((pr) => ({
+        number: pr.number,
+        url: pr.url,
+        title: pr.title,
+        state: pr.state.toLowerCase() as PrInfo["state"],
+        isDraft: pr.isDraft,
+        ci: rollupOf(pr.statusCheckRollup),
+      })),
+    };
   } catch (err) {
     const message = (err as Error).message ?? "";
     const stderr = (err as { stderr?: string }).stderr ?? "";
-    const category = message.includes("ENOENT")
+    const category: ProbeFailureCategory = message.includes("ENOENT")
       ? "gh unavailable"
-      : stderr.includes("HTTP 401") || stderr.includes("gh auth login")
+      : stderr.includes("HTTP 401") ||
+          stderr.includes("gh auth login") ||
+          stderr.includes("Could not resolve to a Repository")
         ? "gh not authenticated"
         : "gh pr list failed";
     if (!loggedCategories.has(category)) {
       loggedCategories.add(category);
       console.error(`[artifact-detect] ${category}`);
     }
-    return null;
+    return { ok: false, category };
   }
 }

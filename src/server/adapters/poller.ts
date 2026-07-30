@@ -1,5 +1,5 @@
-import type { Config, PreviewInfo, PrInfo } from "../../shared/types.js";
-import { listPrsForBranch } from "./gh.js";
+import type { Config, PreviewInfo } from "../../shared/types.js";
+import { listPrsForBranch, type PrProbeResult } from "./gh.js";
 import { panePidsBySession } from "./tmux.js";
 import { listeningPortsBySession } from "./dev-server.js";
 import { store } from "../store/board.store.js";
@@ -101,6 +101,16 @@ async function detectCardArtifacts(): Promise<void> {
   return artifactDetectInFlight;
 }
 
+/**
+ * @remarks
+ * Per-repo PR outcomes (F-03/F-04): a failing repo no longer discards a succeeding sibling's PRs
+ * — `next` flattens only the `ok: true` entries, while any `ok: false` entry sets `prsUnknown` to
+ * the first failing repo's category. The asymmetry is deliberate: a repo that answers with zero
+ * PRs still clears that repo's contribution to `prs`, while a failing repo contributes nothing to
+ * `prs` and sets `prsUnknown` — so a card with one succeeding and one failing repo shows both the
+ * succeeding repo's PRs AND the unknown badge at once. Both the `prs` and `prsUnknown` writes carry
+ * their own write-skip diff so an unchanged tick never rebroadcasts.
+ */
 async function runArtifactDetection(): Promise<void> {
   const cards = store.cardsWithSession();
 
@@ -126,11 +136,24 @@ async function runArtifactDetection(): Promise<void> {
         const results = await Promise.all(
           repos.map((repo) => listPrsForBranch(repo.path, branch)),
         );
-        if (!results.some((r) => r == null)) {
-          const next = (results as PrInfo[][]).flat();
-          if (JSON.stringify(card.prs ?? []) !== JSON.stringify(next)) {
-            await store.setPrsIfSession(card.id, session, next);
+        const failed = results.filter(
+          (r): r is Extract<PrProbeResult, { ok: false }> => !r.ok,
+        );
+        const next = results
+          .filter((r): r is Extract<PrProbeResult, { ok: true }> => r.ok)
+          .flatMap((r) => r.prs);
+        if (JSON.stringify(card.prs ?? []) !== JSON.stringify(next)) {
+          await store.setPrsIfSession(card.id, session, next);
+        }
+        if (failed.length > 0) {
+          const category = failed[0].category;
+          if (card.prsUnknown?.category !== category) {
+            await store.setPrsUnknownIfSession(card.id, session, {
+              category,
+            });
           }
+        } else if (card.prsUnknown != null) {
+          await store.setPrsUnknownIfSession(card.id, session, null);
         }
       }
 
