@@ -590,17 +590,50 @@ cardsRouter.post("/cards/draft", (req, res) => {
 });
 
 /**
- * Module-level single-flight guard for `POST /cards/group-title` (`ORCH-05`), DELIBERATELY its OWN
+ * The one in-flight `POST /cards/group-title` generation, shared by every caller waiting on the
+ * SAME member set. `key` is the sorted member-id list; `waiters` counts the responses still
+ * connected and expecting this run's phrase.
+ */
+interface GroupTitleRun {
+  key: string;
+  controller: AbortController;
+  promise: Promise<string>;
+  waiters: number;
+}
+
+/**
+ * Module-level single-flight state for `POST /cards/group-title` (`ORCH-05`), DELIBERATELY its OWN
  * state — never shared with `draftInFlight` above: the two draft-generation surfaces (a local
  * ticket draft, a group title phrase) are unrelated features a user could legitimately have open
  * at once, mirroring that precedent's own split from `playbooks.route.ts`'s `generateInFlight`.
- * Rejects a concurrent call with 409 rather than fanning out parallel `claude -p` subprocesses.
+ * A concurrent call for a DIFFERENT member set still gets a 409 rather than fanning out parallel
+ * `claude -p` subprocesses; a concurrent call for the SAME member set JOINS the run in flight.
+ *
+ * @remarks Joining, rather than rejecting, is what makes this route usable from a modal-mount
+ * effect. React StrictMode mounts, unmounts and remounts in a single commit, so the development
+ * build issues a request, aborts it about a millisecond later, and issues its replacement — and the
+ * replacement is the one whose result the user would actually see. A plain single-flight boolean
+ * rejected that replacement with a 409 and the client silently kept its deterministic fallback, so
+ * a generated title never landed at all. Releasing the boolean from the disconnect handler instead
+ * of the settle handler was measured and is NOT sufficient: it only wins when the aborted request's
+ * socket close is processed before the replacement's request arrives, which on loopback is a coin
+ * flip (measured 5/10). Joining removes the ordering question entirely — either the replacement
+ * finds the run and rides it, or it finds none and starts its own, and both outcomes are a 200.
+ * The two-tab and close-then-reopen paths have the same shape and are fixed by the same property.
+ * @remarks The subprocess-fan-out defence is strictly preserved: one member set, one `claude`. The
+ * run is aborted as soon as its LAST waiter disconnects, so closing the modal still kills the
+ * subprocess rather than letting it hold the slot for its full timeout.
+ * @remarks Joined waiters receive the phrase computed from the FIRST caller's card snapshot. The
+ * key is the member-id set, not the resolved titles, so a store mutation landing between two joined
+ * requests yields a phrase describing the marginally older titles. That is deliberate: the phrase
+ * is an editable suggestion, and the window is the few milliseconds between a request and its
+ * StrictMode replacement.
  * @remarks Abort listens on `res`, NOT `req` — `req.on("close")` fires the instant the request
  * body is fully read, well before any response is sent, which is exactly the bug `draftInFlight`'s
  * own JSDoc above records as having silently aborted every real `/cards/draft` invocation until it
  * was fixed. This route is written correctly from its first commit.
  */
-let groupTitleInFlight = false;
+let groupTitleRun: GroupTitleRun | null = null;
 
 cardsRouter.post("/cards/group-title", (req, res) => {
   const rawMemberIds = (req.body as { memberIds?: unknown } | undefined)
@@ -629,32 +662,52 @@ cardsRouter.post("/cards/group-title", (req, res) => {
     return;
   }
 
-  if (groupTitleInFlight) {
+  const key = [...rawMemberIds].sort().join(",");
+  if (groupTitleRun !== null && groupTitleRun.key !== key) {
     res.status(409).json({ error: "generate-in-progress" });
     return;
   }
 
-  groupTitleInFlight = true;
-  const controller = new AbortController();
+  if (groupTitleRun === null) {
+    const controller = new AbortController();
+    const started: GroupTitleRun = {
+      key,
+      controller,
+      waiters: 0,
+      promise: generateGroupTitlePhrase(members, controller.signal),
+    };
+    void started.promise
+      .catch(() => undefined)
+      .finally(() => {
+        if (groupTitleRun === started) groupTitleRun = null;
+      });
+    groupTitleRun = started;
+  }
+
+  const run = groupTitleRun;
+  run.waiters++;
+  let disconnected = false;
   res.on("close", () => {
-    if (!res.writableEnded) controller.abort();
+    if (res.writableEnded) return;
+    disconnected = true;
+    run.waiters--;
+    if (run.waiters > 0) return;
+    run.controller.abort();
+    if (groupTitleRun === run) groupTitleRun = null;
   });
 
-  generateGroupTitlePhrase(members, controller.signal)
+  run.promise
     .then((phrase) => {
-      if (controller.signal.aborted) return;
+      if (disconnected) return;
       res.status(200).json({ phrase });
     })
     .catch((err) => {
-      if (controller.signal.aborted) return;
+      if (disconnected) return;
       console.warn(
         "[cards/group-title] generation failed:",
         (err as Error).message,
       );
       res.status(502).json({ error: "generate-failed" });
-    })
-    .finally(() => {
-      groupTitleInFlight = false;
     });
 });
 
