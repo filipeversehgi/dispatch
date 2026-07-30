@@ -227,11 +227,15 @@ legal source column(s), target, and owning code path:
 | Boot hydration legacy migration                              | `in_planning` (retired)                                                          | `todo` / `in_progress`               | `board.store.ts#hydrateFromParsed`, one-way, skips `mirrorMemberColumn`                   |
 | Start-saga success                                           | any                                                                              | `in_progress`                        | `board.store.ts#completeStart` / `#attachExistingSession`                                 |
 
-Conflicts this phase closes, by plan: `flipBack`'s guard covered `needs_input` only (closed in
-Plan 77-01); the Inbox marker-guard hole in `applyMarker` (closed in Plan 77-01, store-side only);
-`moveCardManual`'s blind set into `agent_done` and `todo → in_progress` (closed HERE, Plan 77-02);
-`applyMarker`'s event-type derived from the target column rather than passed explicitly, and the
-`hookRoutedAt` double-write window at launch (both closed in Plan 77-03).
+Every conflict this spec was written to name is now closed and reflected in the table above:
+`flipBack`'s guard is `FLIP_BACK_SOURCES` rather than `needs_input` alone; the Inbox marker-guard
+hole is closed store-side via `APPLY_MARKER_EXCLUDED_SOURCES`; `moveCardManual`'s blind set into
+`agent_done` and `todo → in_progress` is closed by `isManualMoveAllowed` (`BOARD-07`); and
+`applyMarker` takes its activity-event type from the caller rather than deriving it from the
+target column (`WR-05`). One deliberate residual remains and is NOT a conflict: under
+`statusChannel: "auto"` both channels are live until a session's first authenticated hook event,
+because that latch is evidence, not a prediction — see
+[Hooks Status Channel](#hooks-status-channel).
 
 `BOARD-07` is the executable answer to FLOW-03/04: `moveCardManual` (`board.store.ts`) now
 consults `isManualMoveAllowed(from, to)` — exported from `store/column-transitions.ts` alongside

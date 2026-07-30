@@ -2,65 +2,71 @@ import type { Column } from "../../shared/types.js";
 
 /**
  * The executable FLOW-01 column-transition specification (`BOARD-06`): every column-changing
- * trigger against its legal source column(s), its target, and its OWNING code path. This is the
- * dense, reference-shaped spine — the human-readable table lives at
- * `docs/ARCHITECTURE.md#column-transition-specification`, hand-maintained from this list rather
+ * trigger against its legal source column(s), its target, and its OWNING code path. This module is
+ * the spec's code-side home and the block below is its full text; the human-readable table lives
+ * at `docs/ARCHITECTURE.md#column-transition-specification`, hand-maintained from this list rather
  * than generated (the invariant gate verifies presence in both homes, not content-equality,
- * matching every other dual-homed invariant in this codebase).
+ * matching every other dual-homed invariant in this codebase). References are `file#symbol` on
+ * purpose — absolute line numbers rot on the first edit to the file they point at, which is how
+ * the drift this spec exists to prevent gets in.
  *
  * 1. Hook `Stop` + `DISPATCH_STATUS: DONE` -> `agent_done` — owner
- *    `hook-events.ts#applyStopEvent` (:119-128) -> `board.store.ts#applyMarker` (:1022-1049).
+ *    `hook-events.ts#applyStopEvent` -> `board.store.ts#applyMarker`.
  *    Sources: any except `APPLY_MARKER_EXCLUDED_SOURCES`.
  * 2. Hook `Stop` + `DISPATCH_STATUS: NEEDS_INPUT` -> `needs_input` — same owner/sources as #1.
- * 3. Hook `UserPromptSubmit` -> `in_progress` — owner `hook-events.ts#applyPromptSubmit`
- *    (:137-139) -> `board.store.ts#flipBack` (:1079-1096). Sources: `FLIP_BACK_SOURCES` (widened
- *    this plan from `needs_input` alone).
+ * 3. Hook `UserPromptSubmit` -> `in_progress` — owner `hook-events.ts#applyPromptSubmit` ->
+ *    `board.store.ts#flipBack`. Sources: `FLIP_BACK_SOURCES`.
  * 4. Hook `PreToolUse` for a pause-class tool -> `needs_input` — owner
- *    `hook-events.ts#applyPreToolUseEvent` (:162-178) -> `applyMarker`. Same sources as #1.
- * 5. Hook `PostToolUse` for a pause-class tool -> `in_progress` — owner `applyHookEvent`'s
- *    `PostToolUse` branch (:301-303) -> `flipBack`. Same sources as #3.
+ *    `hook-events.ts#applyPreToolUseEvent` -> `applyMarker`. Same sources as #1.
+ * 5. Hook `PostToolUse` for a pause-class tool -> `in_progress` — owner
+ *    `hook-events.ts#applyHookEvent`'s `PostToolUse` branch -> `flipBack`. Same sources as #3.
  * 6. Watcher marker decision (pane-parsed) -> `needs_input`/`agent_done` — owner
- *    `watcher.ts#scanSession` (:192-210) reading the PURE `scan-decision.ts#decideScan`, to
- *    `applyMarker`. Same sources as #1.
- * 7. Watcher flip-back decision -> `in_progress` — owner same path (`watcher.ts#scanSession`
- *    :207-209), to `flipBack`. Source: ONLY `needs_input` — `decideScan` never emits a `flipBack`
- *    decision for `agent_done`/`in_review` sources, so the watcher does NOT drive the two edges
- *    this plan adds; only the hook channel (#3, #5) does. Named fact, not a bug.
- * 8. Manual drag / `POST /cards/:id/move` -> any — owner `board.store.ts#moveCardManual`
- *    (:1117-1140), gated by `routes/cards.route.ts`. Today this is a blind set with no source
- *    check (:1122); `agent_done` and To Do -> `in_progress` are illegitimate manual targets closed
- *    in Plan 77-02 — not implemented here.
+ *    `watcher.ts#scanSession` reading the PURE `scan-decision.ts#decideScan`, to `applyMarker`.
+ *    Same sources as #1.
+ * 7. Watcher flip-back decision -> `in_progress` — owner same path (`watcher.ts#scanSession`), to
+ *    `flipBack`. Source: ONLY `needs_input` — `decideScan` never emits a `flipBack` decision for
+ *    an `agent_done`/`in_review` source, so the watcher does NOT drive those two edges; only the
+ *    hook channel (#3, #5) does. Named fact, not a bug.
+ * 8. Manual drag / `POST /cards/:id/move` — owner `board.store.ts#moveCardManual`, gated by
+ *    `routes/cards.route.ts#manualMoveTransitionError`. NOT a blind set: the mutator consults
+ *    {@link isManualMoveAllowed} inside its enqueue callback (`BOARD-07`), which refuses
+ *    `agent_done` as a target from every source and refuses To Do -> `in_progress`; every other
+ *    pair the pre-allowlist blind set permitted still passes. The route mirrors the same predicate
+ *    for a legible 409 and refuses anything the allowlist rejects, including a pair it has no
+ *    tailored message for.
  * 9. Group member mirroring — NOT an independent trigger; a fan-out from #1, #3, #6 (when the
  *    watcher path applies), #8, `attachExistingSession`, and `completeStart` — owner
- *    `board.store.ts#mirrorMemberColumn` (:186-192), called from exactly these five writers.
- *    Unchanged by Phase 77 — no writer is added to or removed from this set.
+ *    `board.store.ts#mirrorMemberColumn`, called from exactly these five writers. Unchanged by
+ *    Phase 77 — no writer is added to or removed from this set.
  * 10. Session-lost (watcher 3-strike detector, boot reconcile) — column-PRESERVING, no column
- *     write — owner `board.store.ts#markSessionLost` (:965-990).
- * 11. Resume / resume-failed — column-PRESERVING — owner `board.store.ts#resumeSession`
- *     (:1183-) / `#recordResumeFailure` (:1227-1244).
+ *     write — owner `board.store.ts#markSessionLost`.
+ * 11. Resume / resume-failed — column-PRESERVING — owner `board.store.ts#resumeSession` /
+ *     `#recordResumeFailure`.
  * 12. Cleanup (Done teardown) — column-PRESERVING (the card already reached `done` via #8 before
  *     cleanup runs) — owner `services/orchestration/cleanup.ts` plus the `board.store.ts` cleanup
  *     mutators.
- * 13. Card creation -> To Do (`createLocalCard` :1391-1418 / `createGroupCard` :1437-) or ->
+ * 13. Card creation -> To Do (`board.store.ts#createLocalCard` / `#createGroupCard`) or ->
  *     `inbox` (`newInboxCard` via `store/mapping.ts#applyIssues`) — owner as named.
  * 14. Boot hydration legacy migration (`in_planning` -> To Do / `in_progress`) — owner
- *     `board.store.ts#hydrateFromParsed` (:346-388, migration at :352-353), one-way, deliberately
- *     skips `mirrorMemberColumn`.
- * 15. Start-saga success -> `in_progress` — owner `board.store.ts#completeStart` (:1147-1171) /
- *     `#attachExistingSession` (:869-894).
+ *     `board.store.ts#hydrateFromParsed`, one-way, deliberately skips `mirrorMemberColumn`.
+ * 15. Start-saga success -> `in_progress` — owner `board.store.ts#completeStart` /
+ *     `#attachExistingSession`.
  *
  * Agent Done and In Review carry OPPOSITE asymmetries. Agent Done has an automatic in-edge
- * (marker) and, before this plan, no automatic out-edge except an already-intentional
- * `agent_done -> needs_input` on a new distinct marker (`applyMarker`'s own guard, unchanged). In
- * Review has NO automatic in-edge (deliberately deferred, out of this phase's scope) but DOES have
- * automatic out-edges (marker to needs_input / agent_done, and, after this plan, prompt-driven
- * flip-back to in_progress).
+ * (marker) and no automatic out-edge except the already-intentional `agent_done -> needs_input` on
+ * a new distinct marker (`applyMarker`'s own guard, unchanged) plus the prompt-driven flip-back
+ * added by this spec. In Review has NO automatic in-edge (deliberately deferred) but DOES have
+ * automatic out-edges (marker to needs_input / agent_done, and prompt-driven flip-back to
+ * in_progress).
  *
- * Conflicts this phase closes, by plan: `flipBack`'s guard covered `needs_input` only (closed
- * HERE, Task 2); the Inbox marker-guard hole in `applyMarker` (closed HERE, Task 2);
- * `moveCardManual`'s blind set into `agent_done` and To Do -> `in_progress` (closed in Plan 77-02);
- * `applyMarker`'s event-type derived from the target column rather than passed explicitly, and the
- * `hookRoutedAt` double-write window at launch (both closed in Plan 77-03).
+ * Every conflict this spec was written to name is now closed and reflected above: `flipBack`'s
+ * guard is `FLIP_BACK_SOURCES` rather than `needs_input` alone; `applyMarker` reads
+ * `APPLY_MARKER_EXCLUDED_SOURCES`, which includes Inbox; `moveCardManual` consults
+ * {@link isManualMoveAllowed}; and `applyMarker` takes its activity-event type from the caller
+ * rather than deriving it from the target column (`WR-05`). One deliberate residual remains, and
+ * is not a conflict: under `statusChannel: "auto"` both channels are live until a session's first
+ * authenticated hook event, because that latch is evidence and arbitration must never leave a
+ * session with no status channel at all — see `docs/ARCHITECTURE.md#hooks-status-channel`.
  *
  * Legal source columns for `flipBack` — the target is always `in_progress` (no
  * return-to-previous-column history state). Read by `board.store.ts#flipBack`.
