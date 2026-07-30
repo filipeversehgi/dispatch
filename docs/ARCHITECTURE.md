@@ -987,12 +987,23 @@ directly with piped stderr (see [Terminal ttyd](#terminal-ttyd)). Read
 tmux/ttyd/git/claude call routes through the single argv-array exec adapter" wording with that
 carve-out: the ttyd spawn is still argv-array only, it just cannot be an awaited `execFile`. It uses
 argv **arrays** only — no shell strings, no template literals assembling command lines, and no
-synchronous spawns — because command injection is the top threat for this phase: a ticket
-identifier is the only per-ticket value that ever enters argv, Linear-sourced or route-revalidated
-for local/group cards (see `T-02-16`). Titles — now user-editable or LLM-generated for group cards
-(see [Group Card Titles](#group-card-titles)) — never enter argv at all; they only ever travel
-inside the kickoff file loaded into a tmux buffer (`SEC-01`), so the argv-only guarantee never
-actually depended on titles being trusted. This is the argv-only control recorded as `T-04-01` in the
+synchronous spawns — because command injection is the top threat for this phase.
+
+The guarantee is **argv-array-only invocation**, and that is the whole of it. It is NOT that
+untrusted values stay out of argv, and no code should be written on that assumption. Two prompt
+builders pass ticket titles to `claude` as the `-p` argv element today:
+`linear-sync.ts#buildPrompt` (a card's title and description) and
+`group-title-generate.ts#buildPrompt` (every group member's title). What makes those safe is that
+each prompt is ONE element of an argv array handed to `execFile` — no shell parses it, so no
+metacharacter in it can mean anything. A helper that shell-quoted a value, or an `sh -c`
+carve-out, would break the guarantee no matter how well the value was screened.
+
+The distinct claims worth keeping separate: a ticket **identifier** is the only per-ticket value
+that reaches a SESSION-layer argv (tmux session name, branch, worktree path), and it is
+Linear-sourced or route-revalidated for local/group cards (see `T-02-16`); a **title** never
+reaches the agent's session through argv — it travels in the kickoff file loaded into a tmux
+buffer, fenced on the way in (`SEC-01`, see [Group Card Titles](#group-card-titles)). This is the
+argv-only control recorded as `T-04-01` in the
 [Security Threat Model](#security-threat-model) — that table is the authoritative home for the
 threat; this section records the mechanism.
 
