@@ -11,6 +11,11 @@ import type { ProbeFailureCategory } from "../../../shared/types.js";
  * a live PR badge reads as a claim about that PR; "PR check incomplete" says what is actually true,
  * that some of the signal is missing rather than all of it. It stays in this helper rather than at
  * the render sites so the card, panel and member rows cannot drift.
+ *
+ * The switch deliberately has NO `default` arm: `ProbeFailureCategory` is a closed union, so
+ * omitting it makes a widened union fail `tsc` here ("lacks ending return statement") instead of
+ * silently rendering a bare "Could not check" with no reason — in the one component whose entire
+ * purpose is explaining why a signal is unknown.
  */
 export function unknownProbeCopy(
   signal: "pr" | "preview",
@@ -31,7 +36,5 @@ export function unknownProbeCopy(
       return { label, detail: "Could not check — gh lookup failed" };
     case "detection unavailable":
       return { label, detail: "Could not check — detection tooling failed" };
-    default:
-      return { label, detail: "Could not check" };
   }
 }
