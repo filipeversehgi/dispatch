@@ -103,6 +103,17 @@ function groupTicketSection(members: Card[]): string[] {
 }
 
 /**
+ * Flatten a title's newline-adjacent whitespace to a single space and trim (`SEC-01`) — the exact
+ * regex `linear-sync.ts#buildPrompt` already uses for its own title fencing, copied byte-for-byte
+ * so the kickoff seam gets the same guarantee: a multi-line title can never inject extra lines
+ * into the agent's prompt.
+ * @see docs/ARCHITECTURE.md#group-card-titles
+ */
+function fenceTitle(title: string): string {
+  return title.replace(/\s*\n+\s*/g, " ").trim();
+}
+
+/**
  * Build the multi-line kickoff prompt: ticket line, a slim MCP-read ticket slot for
  * Linear-sourced cards (or an inline description block for any other source), optional
  * extra direction, workspace orientation, and the required Phase-4 status protocol. Pure —
@@ -124,6 +135,11 @@ function groupTicketSection(members: Card[]): string[] {
  * never `slim` (its source is neither absent nor `"linear"`), so its head line reads "You are
  * working on ticket GROUP-<n>: <title>" with zero code change — only its middle ticket slot is
  * swapped for {@link groupTicketSection}, per the locked "only the middle slot" constraint.
+ * `card.title` is now newline-fenced via {@link fenceTitle} before entering this head line
+ * (`SEC-01`): a group card's title is no longer guaranteed Linear-sourced (it may be user-typed
+ * or LLM-generated, Phase 78), so it can no longer rely on Linear's own formatting to stay
+ * single-line; this mirrors `linear-sync.ts`'s pre-existing title fencing for its own
+ * Sync-to-Linear prompt.
  * @see docs/ARCHITECTURE.md#marker-protocol
  */
 export function buildKickoff(
@@ -144,7 +160,7 @@ export function buildKickoff(
 
   return [
     ...(url ? [`Linear ticket: ${url}`, ``] : []),
-    `You are working on ${slim ? "Linear ticket" : "ticket"} ${card.identifier}: ${card.title}`,
+    `You are working on ${slim ? "Linear ticket" : "ticket"} ${card.identifier}: ${fenceTitle(card.title)}`,
     ``,
     ...(isGroup
       ? groupTicketSection(opts.members ?? [])

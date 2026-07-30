@@ -299,6 +299,15 @@ Start is gated on nothing but a non-empty trimmed title, exactly as before this 
 is a pure enhancement that lands or does not, never a barrier, and a generation that times out or
 fails is abandoned silently with the deterministic fallback left in place.
 
+`SEC-01` is the kickoff-seam fencing contract: `card.title` is newline-fenced (flattened plus
+trimmed) before it enters `buildKickoff`'s head line (`kickoff.ts#fenceTitle`), closing the one
+interpolation site that previously had none — unlike `linear-sync.ts#buildPrompt`, which already
+flattened and fenced its own title copy. A group card's title can no longer be assumed
+Linear-sourced, unlike every other card type before this phase, so a multi-line title (typed,
+pasted, or a future generation regression) can no longer inject extra lines into the agent's
+kickoff prompt. `groupTicketSection`'s per-member `m.title` interpolations are deliberately
+untouched: those are still Linear-sourced member-card titles, out of this phase's scope.
+
 ### Watcher Discriminator
 
 The pane watcher (`adapters/markers/watcher.ts`) is one 2s self-rescheduling loop that scrapes every
@@ -954,10 +963,12 @@ directly with piped stderr (see [Terminal ttyd](#terminal-ttyd)). Read
 tmux/ttyd/git/claude call routes through the single argv-array exec adapter" wording with that
 carve-out: the ttyd spawn is still argv-array only, it just cannot be an awaited `execFile`. It uses
 argv **arrays** only — no shell strings, no template literals assembling command lines, and no
-synchronous spawns — because command injection is the top threat for this phase: ticket
-identifiers and titles are Linear-sourced, so no untrusted value may ever reach a command line.
-Ticket text is delivered to the agent only as a kickoff FILE loaded into a tmux buffer, never as
-argv. This is the argv-only control recorded as `T-04-01` in the
+synchronous spawns — because command injection is the top threat for this phase: a ticket
+identifier is the only per-ticket value that ever enters argv, Linear-sourced or route-revalidated
+for local/group cards (see `T-02-16`). Titles — now user-editable or LLM-generated for group cards
+(see [Group Card Titles](#group-card-titles)) — never enter argv at all; they only ever travel
+inside the kickoff file loaded into a tmux buffer (`SEC-01`), so the argv-only guarantee never
+actually depended on titles being trusted. This is the argv-only control recorded as `T-04-01` in the
 [Security Threat Model](#security-threat-model) — that table is the authoritative home for the
 threat; this section records the mechanism.
 
