@@ -645,6 +645,8 @@ export function CardView({
                 member={member}
                 groupPr={card.prs}
                 groupPreviews={card.previews}
+                groupPrsUnknown={card.prsUnknown}
+                groupPreviewsUnknown={card.previewsUnknown}
               />
             ))}
           </div>

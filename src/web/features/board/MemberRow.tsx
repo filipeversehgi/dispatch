@@ -3,8 +3,14 @@ import type {
   Card as CardModel,
   PrInfo,
   PreviewInfo,
+  ProbeUnknown,
 } from "../../../shared/types.js";
-import { PrBadge, PreviewBadge, SourceBadge } from "../badges/index.js";
+import {
+  PrBadge,
+  PreviewBadge,
+  SourceBadge,
+  UnknownProbeBadge,
+} from "../badges/index.js";
 import { Field } from "../../primitives/Field.js";
 import { IconButton } from "../../primitives/IconButton.js";
 
@@ -13,6 +19,8 @@ interface MemberRowProps {
   dense?: boolean;
   groupPr?: PrInfo[];
   groupPreviews?: PreviewInfo[];
+  groupPrsUnknown?: ProbeUnknown;
+  groupPreviewsUnknown?: ProbeUnknown;
 }
 
 export function MemberRow({
@@ -20,6 +28,8 @@ export function MemberRow({
   dense = true,
   groupPr,
   groupPreviews,
+  groupPrsUnknown,
+  groupPreviewsUnknown,
 }: MemberRowProps) {
   return (
     <div
@@ -48,12 +58,21 @@ export function MemberRow({
       >
         {member.title}
       </span>
-      {groupPr?.map((pr) => (
-        <PrBadge key={pr.url} pr={pr} />
-      ))}
-      {groupPreviews?.map((preview) => (
-        <PreviewBadge key={preview.port} preview={preview} />
-      ))}
+      {groupPrsUnknown != null ? (
+        <UnknownProbeBadge signal="pr" category={groupPrsUnknown.category} />
+      ) : (
+        groupPr?.map((pr) => <PrBadge key={pr.url} pr={pr} />)
+      )}
+      {groupPreviewsUnknown != null ? (
+        <UnknownProbeBadge
+          signal="preview"
+          category={groupPreviewsUnknown.category}
+        />
+      ) : (
+        groupPreviews?.map((preview) => (
+          <PreviewBadge key={preview.port} preview={preview} />
+        ))
+      )}
       <SourceBadge source={member.source ?? "linear"} />
       {member.source === "linear" && member.url != null && (
         <IconButton

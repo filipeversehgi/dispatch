@@ -33,6 +33,8 @@ export function ReferenceBlocks({ card, members }: ReferenceBlocksProps) {
               dense={false}
               groupPr={c.prs}
               groupPreviews={c.previews}
+              groupPrsUnknown={c.prsUnknown}
+              groupPreviewsUnknown={c.previewsUnknown}
             />
           ))}
         </div>
