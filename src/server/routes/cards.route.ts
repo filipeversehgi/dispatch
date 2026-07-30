@@ -6,7 +6,7 @@ import {
   blocksAgentDoneManualEntry,
   blocksTodoToInProgressManualMove,
   isManualMoveAllowed,
-} from "../store/column-transitions.js";
+} from "../../shared/column-transitions.js";
 import { startSession } from "../services/orchestration/start-session.js";
 import { resumeSession } from "../services/orchestration/resume-session.js";
 import { cleanupWorkspace } from "../services/orchestration/cleanup.js";

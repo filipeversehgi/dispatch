@@ -204,7 +204,7 @@ change to the tokens (`NEEDS_INPUT`/`DONE`), the placeholders (`<one-line reason
 ### Column Transition Specification
 
 `BOARD-06` is the executable FLOW-01 answer to "every column transition has exactly one owner and
-one intended outcome": a code table (`store/column-transitions.ts`) plus this hand-maintained
+one intended outcome": a code table (`shared/column-transitions.ts`) plus this hand-maintained
 prose table, both carrying the invariant id so the gate can verify presence in both homes without
 requiring the two to be mechanically generated from one another. Fifteen triggers, against their
 legal source column(s), target, and owning code path:
@@ -238,7 +238,7 @@ because that latch is evidence, not a prediction — see
 [Hooks Status Channel](#hooks-status-channel).
 
 `BOARD-07` is the executable answer to FLOW-03/04: `moveCardManual` (`board.store.ts`) now
-consults `isManualMoveAllowed(from, to)` — exported from `store/column-transitions.ts` alongside
+consults `isManualMoveAllowed(from, to)` — exported from `shared/column-transitions.ts` alongside
 its two named predicates, `blocksAgentDoneManualEntry` and `blocksTodoToInProgressManualMove` —
 inside its `enqueue` callback against the live Map, the TRUE single-writer authority. Agent Done
 can never be a manual target from any source (only a real `applyMarker` completion signal may

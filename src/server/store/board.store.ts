@@ -22,7 +22,7 @@ import {
   FLIP_BACK_CLEARS_LAST_MARKER,
   FLIP_BACK_SOURCES,
   isManualMoveAllowed,
-} from "./column-transitions.js";
+} from "../../shared/column-transitions.js";
 import { isStartingCard, reconcile } from "./mapping.js";
 
 const BOARD_DIR = path.join(os.homedir(), ".dispatch");

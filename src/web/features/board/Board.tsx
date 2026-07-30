@@ -14,6 +14,7 @@ import type {
   Card as CardModel,
   Column as ColumnId,
 } from "../../../shared/types.js";
+import { blocksAgentDoneManualEntry } from "../../../shared/column-transitions.js";
 import { Column } from "./Column.js";
 import { CardView } from "./CardView.js";
 import { StatusPillSwitcher } from "./StatusPillSwitcher.js";
@@ -208,12 +209,20 @@ export function Board({
 
     if (card.column === targetColumn) return;
 
+    const previousColumn = card.column;
     setCards((prev) =>
       prev.map((c) => (c.id === cardId ? { ...c, column: targetColumn } : c)),
     );
 
     moveCard(cardId, targetColumn).catch((err) => {
-      console.error("moveCard failed; SSE snapshot will reconcile", err);
+      console.error("moveCard failed; restoring the previous column", err);
+      setCards((prev) =>
+        prev.map((c) =>
+          c.id === cardId && c.column === targetColumn
+            ? { ...c, column: previousColumn }
+            : c,
+        ),
+      );
     });
 
     if (targetColumn === "done" && (card.tmuxSession || card.workspacePath)) {
@@ -295,7 +304,7 @@ export function Board({
                 isCarousel={isCarousel}
                 phone={isPhone}
                 large={isLarge}
-                manualEntryBlocked={column === "agent_done"}
+                manualEntryBlocked={blocksAgentDoneManualEntry(column)}
                 resizeDisabled={activeCardId != null}
               />
             ))}

@@ -1,4 +1,4 @@
-import type { Column } from "../../shared/types.js";
+import type { Column } from "./types.js";
 
 /**
  * The executable FLOW-01 column-transition specification (`BOARD-06`): every column-changing
@@ -9,6 +9,12 @@ import type { Column } from "../../shared/types.js";
  * matching every other dual-homed invariant in this codebase). References are `file#symbol` on
  * purpose — absolute line numbers rot on the first edit to the file they point at, which is how
  * the drift this spec exists to prevent gets in.
+ *
+ * The module lives in `shared/` (the `shared/demote-eligibility.ts` precedent) so the web bundle
+ * consults the SAME predicates the store enforces. A client that re-states a blocked pair as its
+ * own literal drifts silently: the board keeps offering the move, the route answers 409, and
+ * `moveCardManual` is never reached — so no `change` event is broadcast and the optimistic column
+ * has nothing to reconcile against.
  *
  * 1. Hook `Stop` + `DISPATCH_STATUS: DONE` -> `agent_done` — owner
  *    `hook-events.ts#applyStopEvent` -> `board.store.ts#applyMarker`.

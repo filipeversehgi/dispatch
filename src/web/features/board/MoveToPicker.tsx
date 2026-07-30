@@ -5,6 +5,7 @@ import type {
   Card as CardModel,
   Column as ColumnId,
 } from "../../../shared/types.js";
+import { blocksAgentDoneManualEntry } from "../../../shared/column-transitions.js";
 import { COLUMN_LABELS } from "../../lib/event-copy.js";
 
 interface MoveToPickerProps {
@@ -19,7 +20,9 @@ const MAX_WIDTH = 260;
 const ROW_HEIGHT = 44;
 const GAP = 4;
 
-const MOVABLE_TARGETS = COLUMNS.filter((column) => column !== "agent_done");
+const PICKER_TARGETS = COLUMNS.filter(
+  (column) => !blocksAgentDoneManualEntry(column),
+);
 
 export function MoveToPicker({
   card,
@@ -51,7 +54,7 @@ export function MoveToPicker({
     MAX_WIDTH,
     Math.max(MIN_WIDTH, window.innerWidth * 0.6),
   );
-  const estimatedHeight = MOVABLE_TARGETS.length * ROW_HEIGHT + GAP * 2;
+  const estimatedHeight = PICKER_TARGETS.length * ROW_HEIGHT + GAP * 2;
   const openAbove = anchorRect.bottom + estimatedHeight > window.innerHeight;
   const top = openAbove
     ? Math.max(GAP, anchorRect.top - estimatedHeight - GAP)
@@ -97,7 +100,7 @@ export function MoveToPicker({
           flexDirection: "column",
         }}
       >
-        {MOVABLE_TARGETS.map((column, index) => {
+        {PICKER_TARGETS.map((column, index) => {
           const current = card.column === column;
           return (
             <button
