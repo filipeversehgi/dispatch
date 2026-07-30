@@ -440,6 +440,7 @@ export function DetailPanel({
 
               {c != null &&
                 (c.prsUnknown != null ||
+                  c.previewsUnknown != null ||
                   (c.prs != null && c.prs.length > 0) ||
                   (c.previews != null && c.previews.length > 0)) && (
                   <div
@@ -459,9 +460,16 @@ export function DetailPanel({
                     ) : (
                       c.prs?.map((pr) => <PrRow key={pr.url} pr={pr} />)
                     )}
-                    {c.previews?.map((preview) => (
-                      <PreviewRow key={preview.port} preview={preview} />
-                    ))}
+                    {c.previewsUnknown != null ? (
+                      <UnknownProbeRow
+                        signal="preview"
+                        category={c.previewsUnknown.category}
+                      />
+                    ) : (
+                      c.previews?.map((preview) => (
+                        <PreviewRow key={preview.port} preview={preview} />
+                      ))
+                    )}
                   </div>
                 )}
 

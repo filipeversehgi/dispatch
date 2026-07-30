@@ -289,9 +289,16 @@ export function CardView({
             ) : (
               card.prs?.map((pr) => <PrBadge key={pr.url} pr={pr} />)
             )}
-            {card.previews?.map((preview) => (
-              <PreviewBadge key={preview.port} preview={preview} />
-            ))}
+            {card.previewsUnknown != null ? (
+              <UnknownProbeBadge
+                signal="preview"
+                category={card.previewsUnknown.category}
+              />
+            ) : (
+              card.previews?.map((preview) => (
+                <PreviewBadge key={preview.port} preview={preview} />
+              ))
+            )}
             {isGroup && (
               <span
                 style={{
