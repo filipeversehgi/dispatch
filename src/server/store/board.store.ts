@@ -17,6 +17,11 @@ import type {
   TerminalError,
 } from "../../shared/types.js";
 import { type BoardDb, type BoardMeta, openBoardDb } from "./board-db.js";
+import {
+  APPLY_MARKER_EXCLUDED_SOURCES,
+  FLIP_BACK_CLEARS_LAST_MARKER,
+  FLIP_BACK_SOURCES,
+} from "./column-transitions.js";
 import { isStartingCard, reconcile } from "./mapping.js";
 
 const BOARD_DIR = path.join(os.homedir(), ".dispatch");
@@ -1011,13 +1016,16 @@ class BoardStore extends EventEmitter {
    * same marker never re-fires. `statusReason` undefined clears it (an empty reason still fires
    * the move but shows no placeholder copy, per UI-SPEC). No-op if the id is unknown.
    *
-   * A marker NEVER moves a card out of "To Do" or "Done" — checked INSIDE the mutator (live Map,
-   * so a queued drag to Done wins over a concurrently-scanned marker): a To Do card with a
-   * surviving session (e.g. interrupted-saga + Retry showing) must not bypass the start flow,
-   * and a card the user parked in Done stays parked. Cards in in_progress / needs_input /
-   * agent_done remain eligible (an Agent Done card CAN move to Needs Input on a new distinct
-   * marker — intended). SECURITY: never logs card, reason, or pane contents.
+   * A marker NEVER moves a card out of `APPLY_MARKER_EXCLUDED_SOURCES` (To Do, Done, or Inbox) —
+   * checked INSIDE the mutator (live Map, so a queued drag to Done wins over a concurrently-scanned
+   * marker): a To Do card with a surviving session (e.g. interrupted-saga + Retry showing) must not
+   * bypass the start flow, a card the user parked in Done stays parked, and (BOARD-06) an Inbox
+   * card — structurally never carrying a `tmuxSession`, so no live caller reaches this path today —
+   * is now excluded by an explicit allowlist rather than that accident. Cards in in_progress /
+   * needs_input / agent_done / in_review remain eligible (an Agent Done card CAN move to Needs
+   * Input on a new distinct marker — intended). SECURITY: never logs card, reason, or pane contents.
    * @see docs/ARCHITECTURE.md#single-writer-store
+   * @see docs/ARCHITECTURE.md#column-transition-specification
    */
   applyMarker(
     id: string,
@@ -1027,7 +1035,7 @@ class BoardStore extends EventEmitter {
   ): Promise<void> {
     return this.enqueue(() => {
       const c = this.cards.get(id);
-      if (!c || c.column === "todo" || c.column === "done") return [];
+      if (!c || APPLY_MARKER_EXCLUDED_SOURCES.includes(c.column)) return [];
       if (c.lastMarker === markerKey) return [];
       const from = c.column;
       c.column = column;
@@ -1066,28 +1074,42 @@ class BoardStore extends EventEmitter {
   }
 
   /**
-   * Flip a Needs-Input card back to In Progress once the agent responds (Phase 4, MARK-03): clear
-   * statusReason in ONE atomic mutation. `lastMarker` is left UNTOUCHED so the still-visible
-   * NEEDS_INPUT marker line cannot re-fire on the next tick (the watcher dedups on `lastMarker`).
-   * No-op if the id is unknown.
+   * Flip a parked card (Needs Input, Agent Done, or In Review) back to In Progress once the agent
+   * responds (Phase 4, MARK-03; widened BOARD-06/FLOW-02 to all of `FLIP_BACK_SOURCES`): clear
+   * statusReason in ONE atomic mutation. The target is always `in_progress` — no
+   * return-to-previous-column history state. No-op if the id is unknown.
    *
-   * The column check lives INSIDE the mutator (the applyIssues precedent): the watcher's read of
-   * `column === "needs_input"` happens outside the queue, so a manual drag can already be queued
-   * ahead of this flip. Re-checking against the live Map here makes the flip a no-op unless the
-   * card is STILL in Needs Input — a queued drag (e.g. to Done) can never be silently reverted.
+   * The column check lives INSIDE the mutator (the applyIssues precedent): a caller's read of the
+   * card's column happens outside the queue, so a manual drag can already be queued ahead of this
+   * flip. Re-checking against the live Map here makes the flip a no-op unless the card is STILL in
+   * one of `FLIP_BACK_SOURCES` — a queued drag (e.g. to Done) can never be silently reverted.
+   *
+   * @remarks FLOW-05: flipping out of `needs_input` MUST stay byte-identical to before this
+   * plan, including leaving `lastMarker` UNTOUCHED — the still-visible NEEDS_INPUT marker line
+   * must not re-fire on the next tick (the watcher dedups on `lastMarker`). FLOW-02: flipping out
+   * of `agent_done`/`in_review` (`FLIP_BACK_CLEARS_LAST_MARKER`) CLEARS `lastMarker` instead —
+   * without this, an agent that re-emits the identical `DISPATCH_STATUS: DONE` text would dedup
+   * against the still-standing key at `applyMarker`'s guard and the card could never repeat the
+   * flip. The clearing is keyed on the PRE-mutation source column, never the target, so the two
+   * edges' behavior can never accidentally swap.
+   * @see docs/ARCHITECTURE.md#column-transition-specification
    */
   flipBack(id: string): Promise<void> {
     return this.enqueue(() => {
       const c = this.cards.get(id);
-      if (!c || c.column !== "needs_input") return [];
+      if (!c || !FLIP_BACK_SOURCES.includes(c.column)) return [];
+      const from = c.column;
       const target = "in_progress";
       c.column = target;
       this.mirrorMemberColumn(c, target);
       c.statusReason = undefined;
+      if (FLIP_BACK_CLEARS_LAST_MARKER.includes(from)) {
+        c.lastMarker = undefined;
+      }
       return [
         this.event("move_auto", {
           cardId: id,
-          fromCol: "needs_input",
+          fromCol: from,
           toCol: target,
           reason: "agent responded",
         }),
