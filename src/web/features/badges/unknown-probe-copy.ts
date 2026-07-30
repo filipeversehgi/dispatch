@@ -38,6 +38,11 @@ export function unknownProbeCopy(
       };
     case "gh unavailable":
       return { label, detail: "Could not check — gh CLI not available" };
+    case "repo path missing":
+      return {
+        label,
+        detail: "Could not check — this card's repo folder no longer exists",
+      };
     case "gh pr list failed":
       return { label, detail: "Could not check — gh lookup failed" };
     case "detection unavailable":

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { run } from "./exec.js";
 import type { PrInfo, ProbeFailureCategory } from "../../shared/types.js";
 
@@ -111,6 +112,15 @@ function rollupOf(checks: GhCheckRun[]): "pass" | "fail" | "pending" | null {
  * renamed, deleted, or mistyped remote. Sending a user to `gh auth login` to fix a remote URL is
  * worse than naming both possibilities, so `"gh not authenticated"` is now reserved for the
  * unambiguous signals — `HTTP 401` and `gh auth login`.
+ *
+ * A spawn failure is discriminated on `.code` being a STRING (`exec.ts`'s documented contract: a
+ * number is a real exit status) rather than on the message containing `ENOENT`. That alone is still
+ * not enough to blame the CLI, because `run()` passes `cwd: repoPath` and a NONEXISTENT cwd raises
+ * the same `ENOENT` a missing `gh` binary does — verified live, identical `.code` and identical
+ * message for both. `existsSync(repoPath)` therefore splits them, so a registered repo folder the
+ * user moved or deleted mid-session reports the folder rather than latching
+ * "gh CLI not available" forever while `gh` is installed and healthy. The `existsSync` cost is paid
+ * only on the failure path, never on a successful lookup.
  */
 export async function listPrsForBranch(
   repoPath: string,
@@ -146,15 +156,18 @@ export async function listPrsForBranch(
       })),
     };
   } catch (err) {
-    const message = (err as Error).message ?? "";
+    const code = (err as { code?: unknown }).code;
     const stderr = (err as { stderr?: string }).stderr ?? "";
-    const category: ProbeFailureCategory = message.includes("ENOENT")
-      ? "gh unavailable"
-      : stderr.includes("HTTP 401") || stderr.includes("gh auth login")
-        ? "gh not authenticated"
-        : stderr.includes("Could not resolve to a Repository")
-          ? "gh repo not accessible"
-          : "gh pr list failed";
+    const category: ProbeFailureCategory =
+      typeof code === "string"
+        ? existsSync(repoPath)
+          ? "gh unavailable"
+          : "repo path missing"
+        : stderr.includes("HTTP 401") || stderr.includes("gh auth login")
+          ? "gh not authenticated"
+          : stderr.includes("Could not resolve to a Repository")
+            ? "gh repo not accessible"
+            : "gh pr list failed";
     if (!loggedCategories.has(category)) {
       loggedCategories.add(category);
       console.error(`[artifact-detect] ${category}`);
