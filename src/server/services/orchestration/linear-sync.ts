@@ -3,6 +3,15 @@ import { resolveBinaryPath } from "../../adapters/resolve-binary.js";
 import { getOrchestrationConfig } from "../infra/config-holder.js";
 import { DISPATCH_DIR } from "../infra/paths.js";
 
+/**
+ * A run of line breaks plus the whitespace hugging it, as one flattenable unit. Kept wider than a
+ * bare `\n`: a lone `\r`, NEL (U+0085), LS (U+2028) or PS (U+2029) also starts a new rendered line,
+ * and JavaScript's `\s` covers only some of them (never U+0085), so a `\n`-only pattern lets those
+ * through unflattened. `kickoff.ts#fenceTitle` carries the same class — the two are deliberate
+ * copies, so widen both together.
+ */
+const LINE_BREAK_RUN_RE = /[\s\u0085]*[\n\r\u0085\u2028\u2029]+[\s\u0085]*/g;
+
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9]+-\d+$/;
 
 const LINEAR_GRAPHQL_URL = "https://api.linear.app/graphql";
@@ -39,7 +48,7 @@ function buildPrompt(card: {
   description: string | null;
 }): string {
   const token = syncToken(card.id);
-  const title = card.title.replace(/\s*\n+\s*/g, " ").trim();
+  const title = card.title.replace(LINE_BREAK_RUN_RE, " ").trim();
   return `You are syncing a local Dispatch kanban ticket out to Linear via the Linear MCP tools. Follow these steps exactly, in order.
 
 Step 1 — idempotency check (do this FIRST, before anything else):

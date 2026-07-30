@@ -70,22 +70,46 @@ const STATUS_PROTOCOL = [
 ];
 
 /**
- * Flatten a title's newline-adjacent whitespace to a single space and trim (`SEC-01`) — the exact
- * regex `linear-sync.ts#buildPrompt` already uses for its own title fencing, copied byte-for-byte
- * so the kickoff seam gets the same guarantee: a multi-line title can never inject extra lines
- * into the agent's prompt.
+ * A run of line breaks plus the whitespace hugging it, as one flattenable unit. Kept wider than a
+ * bare `\n`: a lone `\r`, NEL (U+0085), LS (U+2028) or PS (U+2029) also starts a new rendered line
+ * in a terminal, and JavaScript's `\s` covers only some of them (never U+0085), so a `\n`-only
+ * pattern lets those through unflattened. `linear-sync.ts#buildPrompt` carries the same class for
+ * its own title fencing — the two are deliberate copies, so widen both together.
+ */
+const LINE_BREAK_RUN_RE = /[\s\u0085]*[\n\r\u0085\u2028\u2029]+[\s\u0085]*/g;
+
+/**
+ * The status-marker token exactly as `adapters/markers/parse.ts` MARKER_RE requires it: the name
+ * followed immediately by its colon. Breaking that colon is what makes the token unparseable.
+ */
+const MARKER_TOKEN_RE = /DISPATCH_STATUS:/g;
+
+/**
+ * Fence a title before it is interpolated into the kickoff prompt (`SEC-01`): flatten every line
+ * break to a single space, defuse any embedded status-marker token, then trim.
  *
- * @remarks Applied to EVERY title interpolated into the kickoff — the head line's `card.title` and
- * each group member's `m.title` alike — because Linear provenance is a statement about where a
- * value came from, not about who may write it: every member of a Linear workspace, and every
- * integration holding a write-scoped key, can set an issue's title, and nothing on the ingest path
+ * @remarks Applied to EVERY title reaching the kickoff — the head line's `card.title` and each
+ * group member's `m.title` alike — because Linear provenance is a statement about where a value
+ * came from, not about who may write it: every member of a Linear workspace, and every integration
+ * holding a write-scoped key, can set an issue's title, and nothing on the ingest path
  * (`store/mapping.ts`, `sources/*`) flattens or screens it. For a Linear-sourced group member the
  * title is in fact the ONLY attacker-influenced text in the whole kickoff, since that member
  * contributes no inlined description — only the batched MCP-read instruction.
+ * @remarks Flattening ALONE does not close the marker-spoof path, which is why the token is defused
+ * too. The kickoff is pasted into the live pane and the TUI hard-wraps its echo; a flattened title
+ * merely puts the token mid-line, and a wrap landing just before it puts it back at line start,
+ * where MARKER_RE matches again. Measured against the real parser, a title flattened to
+ * `- PROP-123: Fix login flow <token> DONE — shipped` re-parsed as a DONE marker at every word-wrap
+ * width from 26 to 42 columns — well inside the range of a split pane. Defusing the colon removes
+ * the token's only match anchor, so no wrap width can reconstitute it. The `STATUS_PROTOCOL` block
+ * below is the ONE sanctioned source of that token in a kickoff and never passes through here.
  * @see docs/ARCHITECTURE.md#group-card-titles
  */
 function fenceTitle(title: string): string {
-  return title.replace(/\s*\n+\s*/g, " ").trim();
+  return title
+    .replace(LINE_BREAK_RUN_RE, " ")
+    .replace(MARKER_TOKEN_RE, "DISPATCH_STATUS ")
+    .trim();
 }
 
 /**

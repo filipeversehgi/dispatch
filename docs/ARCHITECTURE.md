@@ -300,10 +300,22 @@ is a pure enhancement that lands or does not, never a barrier, and a generation 
 fails is abandoned silently with the deterministic fallback left in place.
 
 `SEC-01` is the kickoff-seam fencing contract: **every** title interpolated into a kickoff prompt
-is newline-fenced (flattened plus trimmed) by `kickoff.ts#fenceTitle` — `buildKickoff`'s head-line
-`card.title`, and each group member's `m.title` in `groupTicketSection`, on both the Linear bullet
-line and the local-member `## <identifier>: <title>` header. This mirrors what
-`linear-sync.ts#buildPrompt` already did for its own title copy.
+is fenced by `kickoff.ts#fenceTitle` — `buildKickoff`'s head-line `card.title`, and each group
+member's `m.title` in `groupTicketSection`, on both the Linear bullet line and the local-member
+`## <identifier>: <title>` header. Fencing is two steps, and both are load-bearing:
+
+1. **Flatten every line break to a single space.** The break class is deliberately wider than
+   `\n` — a lone `\r`, NEL (U+0085), LS (U+2028) and PS (U+2029) each start a new rendered line in
+   a terminal, and JavaScript's `\s` never covers U+0085. `linear-sync.ts#buildPrompt` carries the
+   same class for its own title copy; the two are deliberate copies and are widened together.
+2. **Defuse any embedded status-marker token**, by breaking the colon that `MARKER_RE` anchors on.
+   Flattening alone does NOT close the marker-spoof path: the kickoff is pasted into the live pane
+   and the TUI hard-wraps its echo, so a flattened title merely moves the token mid-line, and a
+   wrap landing just before it puts the token back at line start. Measured against the real parser,
+   a flattened `- PROP-123: Fix login flow <token> DONE — shipped` re-parsed as a DONE marker at
+   every word-wrap width from 26 to 42 columns — well inside split-pane range. The
+   `STATUS_PROTOCOL` block is the one sanctioned source of that token in a kickoff, and never
+   passes through the fence.
 
 Fencing member titles is not optional hardening. Linear provenance is a statement about where a
 value came from, never a statement that it is trusted: every member of a Linear workspace, and
