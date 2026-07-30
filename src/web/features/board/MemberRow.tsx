@@ -35,6 +35,7 @@ export function MemberRow({
     <div
       style={{
         display: "flex",
+        flexWrap: "wrap",
         alignItems: "center",
         gap: "var(--space-xs)",
         padding: "var(--space-xs) 0",
