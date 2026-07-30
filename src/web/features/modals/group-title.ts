@@ -64,14 +64,23 @@ function truncatePhrase(phrase: string, max: number): string {
  * identifiers twice over — `PROP-123 + PROP-456 [2: PROP-123, PROP-456]` — since the bracketed
  * suffix already names every member. At higher member counts the join also truncated mid-identifier
  * (`PROP-12…`) immediately before a count restating what the cut list was trying to convey.
+ * @remarks Guards the empty-member case even though the board cannot currently produce it
+ * (`SelectionBar` renders nothing below two selections, and `Board` prunes `selectedIds` in the
+ * same batch that sets `cards`, so the count and the filtered array cannot diverge). This runs in a
+ * `useState` initializer, where a throw takes down the render rather than just the modal, and the
+ * code it replaced was total — so the partiality would be newly introduced on a render path.
+ * @remarks Collapses whitespace in the project name for the same reason the generated phrase is
+ * newline-stripped server-side: an embedded line break would leave the field's DISPLAYED value (the
+ * `<input>` value-sanitization algorithm strips CR/LF) different from the value actually submitted.
  */
 function deterministicPhrase(members: Card[]): string {
+  if (members.length === 0) return "";
   const firstProject = members[0].project;
   if (
     firstProject != null &&
     members.every((m) => m.project?.id === firstProject.id)
   ) {
-    return firstProject.name;
+    return firstProject.name.replace(/\s+/g, " ").trim();
   }
   return "";
 }
