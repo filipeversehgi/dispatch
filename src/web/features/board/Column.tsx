@@ -32,6 +32,8 @@ interface ColumnProps {
   manualEntryBlocked?: boolean;
   refusedDrop?: boolean;
   resizeDisabled?: boolean;
+  inboxCount?: number;
+  onOpenInbox?: () => void;
 }
 
 export function Column({
@@ -50,6 +52,8 @@ export function Column({
   manualEntryBlocked,
   refusedDrop,
   resizeDisabled,
+  inboxCount,
+  onOpenInbox,
 }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: column });
   const highlight = isOver && !manualEntryBlocked;
@@ -345,7 +349,11 @@ export function Column({
         }}
       >
         {cards.length === 0 ? (
-          <EmptyState column={column} />
+          <EmptyState
+            column={column}
+            inboxCount={inboxCount}
+            onOpenInbox={onOpenInbox}
+          />
         ) : (
           cards.map((card) => (
             <Card

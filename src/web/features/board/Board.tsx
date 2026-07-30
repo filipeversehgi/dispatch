@@ -26,6 +26,7 @@ import { useLastOpened } from "../../hooks/useUnseenActivity.js";
 import { CAROUSEL_QUERY, useMediaQuery } from "../../hooks/useMediaQuery.js";
 import { moveCard } from "../../lib/api.js";
 import { deriveShowDot, deriveShowGone } from "../../lib/card-badges.js";
+import { inboxWaitingCount } from "./inbox-count.js";
 
 interface BoardProps {
   board: BoardSnapshot | null;
@@ -34,6 +35,7 @@ interface BoardProps {
   onStartRequest?: (req: string | StartRequest) => void;
   onCleanupRequest?: (id: string) => void;
   onEditPlaybooks: () => void;
+  onOpenInbox?: () => void;
 }
 
 function isColumn(id: unknown): id is ColumnId {
@@ -47,6 +49,7 @@ export function Board({
   onStartRequest,
   onCleanupRequest,
   onEditPlaybooks,
+  onOpenInbox,
 }: BoardProps) {
   const [cards, setCards] = useState<CardModel[]>(board?.cards ?? []);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -74,6 +77,8 @@ export function Board({
       groupMembersById.set(card.id, membersOf(card, cards));
     }
   }
+
+  const waitingInInbox = inboxWaitingCount(cards);
 
   const [activeCardId, setActiveCardId] = useState<string | null>(null);
   const activeCard = activeCardId
@@ -320,6 +325,8 @@ export function Board({
                 manualEntryBlocked={blocksAgentDoneManualEntry(column)}
                 refusedDrop={refusedColumn === column}
                 resizeDisabled={activeCardId != null}
+                inboxCount={waitingInInbox}
+                onOpenInbox={onOpenInbox}
               />
             ))}
           </div>

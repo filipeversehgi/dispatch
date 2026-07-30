@@ -291,6 +291,7 @@ export function App() {
               setSettingsInitialTab("playbooks");
               setSettingsOpen(true);
             }}
+            onOpenInbox={() => setInboxOpen(true)}
           />
         )
       }
