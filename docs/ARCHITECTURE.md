@@ -299,14 +299,26 @@ Start is gated on nothing but a non-empty trimmed title, exactly as before this 
 is a pure enhancement that lands or does not, never a barrier, and a generation that times out or
 fails is abandoned silently with the deterministic fallback left in place.
 
-`SEC-01` is the kickoff-seam fencing contract: `card.title` is newline-fenced (flattened plus
-trimmed) before it enters `buildKickoff`'s head line (`kickoff.ts#fenceTitle`), closing the one
-interpolation site that previously had none — unlike `linear-sync.ts#buildPrompt`, which already
-flattened and fenced its own title copy. A group card's title can no longer be assumed
-Linear-sourced, unlike every other card type before this phase, so a multi-line title (typed,
-pasted, or a future generation regression) can no longer inject extra lines into the agent's
-kickoff prompt. `groupTicketSection`'s per-member `m.title` interpolations are deliberately
-untouched: those are still Linear-sourced member-card titles, out of this phase's scope.
+`SEC-01` is the kickoff-seam fencing contract: **every** title interpolated into a kickoff prompt
+is newline-fenced (flattened plus trimmed) by `kickoff.ts#fenceTitle` — `buildKickoff`'s head-line
+`card.title`, and each group member's `m.title` in `groupTicketSection`, on both the Linear bullet
+line and the local-member `## <identifier>: <title>` header. This mirrors what
+`linear-sync.ts#buildPrompt` already did for its own title copy.
+
+Fencing member titles is not optional hardening. Linear provenance is a statement about where a
+value came from, never a statement that it is trusted: every member of a Linear workspace, and
+every integration holding a write-scoped key, can set an issue's title, and nothing on the ingest
+path (`store/mapping.ts`, `sources/*`) flattens or screens one. An unfenced multi-line title emits
+its tail as a STANDALONE line inside the agent's own operator prompt — the highest-trust register
+the agent has — and that line is also seen by `adapters/markers/parse.ts`, whose `MARKER_RE` is
+line-anchored and scans the whole pane, so a title tail shaped like a status marker forges a
+column transition on a session that is still running. For a Linear-sourced group member the title
+is in fact the ONLY attacker-influenced text in the kickoff, since such a member contributes no
+inlined description, only the batched MCP-read instruction.
+
+A group member's `description` is deliberately NOT fenced: inlined description content is
+multi-line by design (it is content, not a single-line field), and only local-source members carry
+one.
 
 ### Watcher Discriminator
 

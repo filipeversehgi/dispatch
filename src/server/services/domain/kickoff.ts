@@ -70,6 +70,25 @@ const STATUS_PROTOCOL = [
 ];
 
 /**
+ * Flatten a title's newline-adjacent whitespace to a single space and trim (`SEC-01`) — the exact
+ * regex `linear-sync.ts#buildPrompt` already uses for its own title fencing, copied byte-for-byte
+ * so the kickoff seam gets the same guarantee: a multi-line title can never inject extra lines
+ * into the agent's prompt.
+ *
+ * @remarks Applied to EVERY title interpolated into the kickoff — the head line's `card.title` and
+ * each group member's `m.title` alike — because Linear provenance is a statement about where a
+ * value came from, not about who may write it: every member of a Linear workspace, and every
+ * integration holding a write-scoped key, can set an issue's title, and nothing on the ingest path
+ * (`store/mapping.ts`, `sources/*`) flattens or screens it. For a Linear-sourced group member the
+ * title is in fact the ONLY attacker-influenced text in the whole kickoff, since that member
+ * contributes no inlined description — only the batched MCP-read instruction.
+ * @see docs/ARCHITECTURE.md#group-card-titles
+ */
+function fenceTitle(title: string): string {
+  return title.replace(/\s*\n+\s*/g, " ").trim();
+}
+
+/**
  * The group-arm's ticket slot (Phase 63, KICK-06): Linear members get a `## Tickets` heading with
  * one identifier/title/url bullet each plus ONE batched MCP-read instruction; local members follow
  * with an inlined `## <identifier>: <title>` section and their trimmed description (falling back
@@ -77,6 +96,14 @@ const STATUS_PROTOCOL = [
  * called only from the `card.source === "group"` branch below, in place of the slim/fat ticket
  * slot; never touches the head line, extra-direction slot, workspace orientation, or the
  * STATUS_PROTOCOL tail (the kickoff sandwich's bread stays untouched).
+ *
+ * @remarks Both member-title interpolations run through {@link fenceTitle} (`SEC-01`). Without it a
+ * title carrying a newline emits its tail as a STANDALONE line inside `## Tickets`, which is both a
+ * prompt injection into the operator's own prompt (the highest-trust register the agent has) and a
+ * marker spoof: `adapters/markers/parse.ts`'s `MARKER_RE` is line-anchored and scans the whole
+ * pane, and the kickoff echo demonstrably reaches that parser. A member's `description` is
+ * deliberately NOT fenced — inlined description content is multi-line by design and is content, not
+ * a single-line field.
  */
 function groupTicketSection(members: Card[]): string[] {
   const linear = members.filter((m) => (m.source ?? "linear") === "linear");
@@ -84,7 +111,9 @@ function groupTicketSection(members: Card[]): string[] {
   const lines: string[] = [`## Tickets`];
   for (const m of linear) {
     const url = m.url?.trim();
-    lines.push(`- ${m.identifier}: ${m.title}${url ? ` — ${url}` : ""}`);
+    lines.push(
+      `- ${m.identifier}: ${fenceTitle(m.title)}${url ? ` — ${url}` : ""}`,
+    );
   }
   if (linear.length > 0) {
     lines.push(
@@ -95,22 +124,11 @@ function groupTicketSection(members: Card[]): string[] {
   for (const m of local) {
     lines.push(
       ``,
-      `## ${m.identifier}: ${m.title}`,
+      `## ${m.identifier}: ${fenceTitle(m.title)}`,
       m.description?.trim() || "(no description provided)",
     );
   }
   return lines;
-}
-
-/**
- * Flatten a title's newline-adjacent whitespace to a single space and trim (`SEC-01`) — the exact
- * regex `linear-sync.ts#buildPrompt` already uses for its own title fencing, copied byte-for-byte
- * so the kickoff seam gets the same guarantee: a multi-line title can never inject extra lines
- * into the agent's prompt.
- * @see docs/ARCHITECTURE.md#group-card-titles
- */
-function fenceTitle(title: string): string {
-  return title.replace(/\s*\n+\s*/g, " ").trim();
 }
 
 /**
@@ -135,11 +153,12 @@ function fenceTitle(title: string): string {
  * never `slim` (its source is neither absent nor `"linear"`), so its head line reads "You are
  * working on ticket GROUP-<n>: <title>" with zero code change — only its middle ticket slot is
  * swapped for {@link groupTicketSection}, per the locked "only the middle slot" constraint.
- * `card.title` is now newline-fenced via {@link fenceTitle} before entering this head line
- * (`SEC-01`): a group card's title is no longer guaranteed Linear-sourced (it may be user-typed
- * or LLM-generated, Phase 78), so it can no longer rely on Linear's own formatting to stay
- * single-line; this mirrors `linear-sync.ts`'s pre-existing title fencing for its own
- * Sync-to-Linear prompt.
+ * EVERY title reaching this prompt is newline-fenced via {@link fenceTitle} (`SEC-01`) — this head
+ * line's `card.title` and, in {@link groupTicketSection}, each member's `m.title`. A group card's
+ * title is no longer guaranteed Linear-sourced (it may be user-typed or LLM-generated, Phase 78),
+ * and a Linear-sourced title was never trustworthy to begin with — provenance is not a trust
+ * boundary. This mirrors `linear-sync.ts`'s pre-existing title fencing for its own Sync-to-Linear
+ * prompt.
  * @see docs/ARCHITECTURE.md#marker-protocol
  */
 export function buildKickoff(
