@@ -19,10 +19,40 @@ const PHRASE_CHAR_BUDGET = 56;
  */
 const TITLE_WITH_IDS_BUDGET = 80;
 
+/**
+ * Approximate rendered width of one code point in budget units: astral-plane code points (emoji,
+ * CJK extensions) occupy roughly two Latin character widths, everything else one.
+ * @remarks A deliberate approximation, not a text-shaping measurement. It exists so the budget
+ * constants mean roughly what their remarks claim — a VISUAL bound — rather than a raw count under
+ * which 27 emoji "fit" a 56-unit budget while rendering about twice as wide.
+ */
+function pointWidth(point: string): number {
+  return (point.codePointAt(0) ?? 0) > 0xffff ? 2 : 1;
+}
+
+/**
+ * Truncate a phrase to `max` budget units, appending an ellipsis when it had to cut.
+ * @remarks Iterates CODE POINTS, never UTF-16 code units. Slicing by code unit cut surrogate pairs
+ * in half — a project name of emoji produced a title carrying a lone high surrogate, which survived
+ * server-side length and marker validation, persisted into the card record, and then rendered as
+ * the replacement character in every card, panel header and Orca row (and degraded to U+FFFD again
+ * when the title was written into the kickoff file as UTF-8). `trimEnd` cannot repair that.
+ */
 function truncatePhrase(phrase: string, max: number): string {
-  return phrase.length <= max
-    ? phrase
-    : `${phrase.slice(0, max - 1).trimEnd()}…`;
+  const points = [...phrase];
+  let total = 0;
+  for (const p of points) total += pointWidth(p);
+  if (total <= max) return phrase;
+
+  const kept: string[] = [];
+  let width = 0;
+  for (const p of points) {
+    const w = pointWidth(p);
+    if (width + w > max - 1) break;
+    kept.push(p);
+    width += w;
+  }
+  return `${kept.join("").trimEnd()}…`;
 }
 
 /**
