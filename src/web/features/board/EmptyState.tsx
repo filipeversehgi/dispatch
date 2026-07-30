@@ -1,8 +1,11 @@
 import type { Column as ColumnId } from "../../../shared/types.js";
 import { Glyph } from "../../primitives/Glyph.js";
+import { Button } from "../../primitives/Button.js";
 
 interface EmptyStateProps {
   column: ColumnId;
+  inboxCount?: number;
+  onOpenInbox?: () => void;
 }
 
 export const SINGLE_LINE_COPY: Record<Exclude<ColumnId, "todo">, string> = {
@@ -14,7 +17,11 @@ export const SINGLE_LINE_COPY: Record<Exclude<ColumnId, "todo">, string> = {
   inbox: "Nothing in the inbox.",
 };
 
-export function EmptyState({ column }: EmptyStateProps) {
+export function EmptyState({
+  column,
+  inboxCount,
+  onOpenInbox,
+}: EmptyStateProps) {
   if (column !== "todo") {
     return (
       <div
@@ -33,6 +40,8 @@ export function EmptyState({ column }: EmptyStateProps) {
       </div>
     );
   }
+
+  const waiting = inboxCount != null && inboxCount > 0 ? inboxCount : 0;
 
   return (
     <div
@@ -62,11 +71,29 @@ export function EmptyState({ column }: EmptyStateProps) {
           color: "var(--text-muted)",
         }}
       >
-        Issues assigned to you in Linear that are in an unstarted state show up
-        here within a minute.
+        {waiting > 0 ? (
+          <>
+            {waiting} ticket{waiting === 1 ? "" : "s"} waiting in the Inbox for
+            triage.
+          </>
+        ) : (
+          <>
+            New tickets synced from Linear land in the Inbox for triage, not
+            directly here — promote what you want to work on next.
+          </>
+        )}
         <br />
         Or click + above to draft one yourself.
       </div>
+      {waiting > 0 && (
+        <Button
+          variant="primary"
+          onClick={onOpenInbox}
+          style={{ alignSelf: "center" }}
+        >
+          Open Inbox — {waiting} waiting
+        </Button>
+      )}
     </div>
   );
 }
