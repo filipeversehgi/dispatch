@@ -1305,7 +1305,17 @@ Reconcile](#resilience-and-reconcile) for the counter mechanics shared with `RES
 bare `net.connect` with a 500ms timeout and accepts on TCP handshake completion alone — never an
 HTTP request or status code, since an HTTP-status probe would wrongly reject a real dev server whose
 `/` returns 404 (common for an API-only or SPA dev server) and would fail a TLS-only dev server
-outright. LISTEN state alone is not "answers".
+outright.
+
+**What that confirmation does and does not claim.** It confirms only that SOMETHING still accepts a
+connection at probe time; it deliberately does not assert that the application answers. This is a
+measured limit, not a hypothesis: the three bogus-preview shapes reproduced under F-07 —
+destroy-on-connect, TCP-accept-but-never-respond, and a real HTTP server 404ing at `/` — all
+complete the handshake and are therefore all still advertised. What the probe does remove is a port
+that stopped listening in the window since the `lsof` scan. The TCP-only ceiling is the deliberate
+trade: variant C (404 at `/`) is a perfectly healthy dev server, so any probe strict enough to reject
+variants A and B would also reject it. Do not build on this line as if LISTEN-versus-answers were
+now settled — closing the remaining gap needs a different mechanism than a connect probe.
 
 **The probe dials the address family `lsof` reported, never a hardcoded `127.0.0.1`.** Discovery
 accepts an IPv6-loopback bind, and a `::1`-only listener refuses an IPv4 connect outright — so an
