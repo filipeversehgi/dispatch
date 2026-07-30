@@ -68,17 +68,36 @@ ${PHRASE_HEADER}
 }
 
 /**
+ * Shapes a real phrase never has, and a model echoing its own instructions always does: the
+ * angle-bracketed placeholder from the output rules, and a markdown heading (which would be the
+ * template's own `## Phrase` line pulled in one line late).
+ */
+const TEMPLATE_ECHO_RE = /^(?:<|#{1,6}\s)/;
+
+/**
  * Parse a `generateGroupTitlePhrase` stdout into the phrase string. Exported (undecorated by any
  * subprocess spawn) so a scratchpad/verify script can assert its shape/footgun guards without
  * invoking `claude`. Mirrors `parseTicketDraft`'s exact throwing contract: throws a plain `Error`
  * — the caller maps every throw to the same 502 `generate-failed` surface `cards.route.ts` already
  * uses for `/cards/draft` — when the `## Phrase` header is missing, when the phrase is empty after
- * trim, or when the phrase carries the `DISPATCH_STATUS:` marker. As a final defense-in-depth step
- * (the prompt already asks for this but a model can ignore it), the result is hard-clamped to
- * `PHRASE_CAP` characters before returning.
+ * trim, when it carries the `DISPATCH_STATUS:` marker, or when it is the output template echoed
+ * back. As a final defense-in-depth step (the prompt already asks for this but a model can ignore
+ * it), the result is hard-clamped to `PHRASE_CAP` characters before returning.
+ *
+ * @remarks Rejecting the template echo matters MORE than the other screens, because this parser is
+ * the only thing standing between a bad generation and a WORSE outcome than failing. Every other
+ * failure path leaves the client's deterministic fallback in place; a 200 carrying
+ * `<one concise plain-text phrase: no` REPLACES a perfectly good default with the literal
+ * placeholder, since the client accepts any `ok` response. Restating the output rules in a preamble
+ * is a common `-p` failure mode — it is the same behaviour `adapters/markers/parse.ts` carries its
+ * own placeholder guard for.
+ * @remarks Scans for the LAST `## Phrase`, not the first, for the same reason: when a model prints
+ * the template before the real section, the first occurrence is the echo and the real answer is
+ * further down. Taking the last occurrence lets the real section win; the rejection screen then
+ * catches the case where there is no real section at all.
  */
 export function parseGroupTitlePhrase(stdout: string): string {
-  const headerIdx = stdout.indexOf(PHRASE_HEADER);
+  const headerIdx = stdout.lastIndexOf(PHRASE_HEADER);
   if (headerIdx === -1) {
     throw new Error("missing ## Phrase header in generation output");
   }
@@ -94,6 +113,9 @@ export function parseGroupTitlePhrase(stdout: string): string {
   }
   if (hasDispatchMarker(phrase)) {
     throw new Error("generated content contains the DISPATCH_STATUS marker");
+  }
+  if (TEMPLATE_ECHO_RE.test(phrase) || phrase.includes(PHRASE_HEADER)) {
+    throw new Error("generation output echoed the template placeholder");
   }
 
   return phrase.slice(0, PHRASE_CAP);
