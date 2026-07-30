@@ -2,6 +2,11 @@ import { Router, type Request, type Response } from "express";
 import { COLUMNS, type Card, type Column } from "../../shared/types.js";
 import { isDemoteEligible } from "../../shared/demote-eligibility.js";
 import { store } from "../store/board.store.js";
+import {
+  blocksAgentDoneManualEntry,
+  blocksTodoToInProgressManualMove,
+  isManualMoveAllowed,
+} from "../store/column-transitions.js";
 import { startSession } from "../services/orchestration/start-session.js";
 import { resumeSession } from "../services/orchestration/resume-session.js";
 import { cleanupWorkspace } from "../services/orchestration/cleanup.js";
@@ -51,6 +56,21 @@ function inboxTransitionError(card: Card, column: Column): string | null {
 }
 
 /**
+ * `BOARD-07`'s route-side mirror: reads the SAME `isManualMoveAllowed` predicate
+ * `moveCardManual` consults, so the 409 message and the store's silent guard can never disagree
+ * about which pairs are blocked. The named predicates only choose which message applies; they are
+ * never a second, independent decision.
+ */
+function manualMoveTransitionError(card: Card, column: Column): string | null {
+  if (isManualMoveAllowed(card.column, column)) return null;
+  if (blocksAgentDoneManualEntry(column))
+    return "Agent Done is set automatically by a real agent completion signal — it is never a manual move target";
+  if (blocksTodoToInProgressManualMove(card.column, column))
+    return "starting a To Do card requires the start flow — drag it to In Progress (or use Start) rather than posting a bare move";
+  return null;
+}
+
+/**
  * GROUP-03 as a SERVER invariant, not a UI convention: a grouped member is never independently
  * progressable, including during the pre-start/failed-start window where it still sits in To Do
  * (session/workspace fields live only on the group card). Called at the top of every single-card
@@ -90,6 +110,12 @@ cardsRouter.post("/cards/:id/move", async (req, res) => {
   const transitionError = inboxTransitionError(card, column as Column);
   if (transitionError != null) {
     res.status(409).json({ error: transitionError });
+    return;
+  }
+
+  const manualMoveError = manualMoveTransitionError(card, column as Column);
+  if (manualMoveError != null) {
+    res.status(409).json({ error: manualMoveError });
     return;
   }
 

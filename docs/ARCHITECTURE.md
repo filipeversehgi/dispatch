@@ -209,29 +209,40 @@ prose table, both carrying the invariant id so the gate can verify presence in b
 requiring the two to be mechanically generated from one another. Fifteen triggers, against their
 legal source column(s), target, and owning code path:
 
-| Trigger                                                      | Source column(s)                                               | Target                               | Owner                                                                                     |
-| ------------------------------------------------------------ | -------------------------------------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------- |
-| Hook `Stop` + `DISPATCH_STATUS: DONE`                        | any except `APPLY_MARKER_EXCLUDED_SOURCES`                     | `agent_done`                         | `hook-events.ts#applyStopEvent` → `board.store.ts#applyMarker`                            |
-| Hook `Stop` + `DISPATCH_STATUS: NEEDS_INPUT`                 | any except `APPLY_MARKER_EXCLUDED_SOURCES`                     | `needs_input`                        | same as above                                                                             |
-| Hook `UserPromptSubmit`                                      | `FLIP_BACK_SOURCES` (`needs_input`, `agent_done`, `in_review`) | `in_progress`                        | `hook-events.ts#applyPromptSubmit` → `board.store.ts#flipBack`                            |
-| Hook `PreToolUse` (pause-class tool)                         | any except `APPLY_MARKER_EXCLUDED_SOURCES`                     | `needs_input`                        | `hook-events.ts#applyPreToolUseEvent` → `applyMarker`                                     |
-| Hook `PostToolUse` (pause-class tool)                        | `FLIP_BACK_SOURCES`                                            | `in_progress`                        | `applyHookEvent`'s `PostToolUse` branch → `flipBack`                                      |
-| Watcher marker decision (pane-parsed)                        | any except `APPLY_MARKER_EXCLUDED_SOURCES`                     | `needs_input` / `agent_done`         | `watcher.ts#scanSession` reading pure `scan-decision.ts#decideScan` → `applyMarker`       |
-| Watcher flip-back decision                                   | `needs_input` ONLY                                             | `in_progress`                        | same path → `flipBack`                                                                    |
-| Manual drag / `POST /cards/:id/move`                         | any (blind set today, no source check)                         | any                                  | `board.store.ts#moveCardManual`, gated by `routes/cards.route.ts`                         |
-| Group member mirroring (fan-out, not an independent trigger) | mirrors the writer that triggered it                           | mirrors the writer that triggered it | `board.store.ts#mirrorMemberColumn`, called from exactly 5 writers                        |
-| Session-lost (3-strike detector, boot reconcile)             | column-preserving                                              | column-preserving                    | `board.store.ts#markSessionLost`                                                          |
-| Resume / resume-failed                                       | column-preserving                                              | column-preserving                    | `board.store.ts#resumeSession` / `#recordResumeFailure`                                   |
-| Cleanup (Done teardown)                                      | column-preserving (already `done`)                             | column-preserving                    | `services/orchestration/cleanup.ts` + store cleanup mutators                              |
-| Card creation                                                | — (new card)                                                   | `todo` or `inbox`                    | `createLocalCard` / `createGroupCard` / `newInboxCard` via `store/mapping.ts#applyIssues` |
-| Boot hydration legacy migration                              | `in_planning` (retired)                                        | `todo` / `in_progress`               | `board.store.ts#hydrateFromParsed`, one-way, skips `mirrorMemberColumn`                   |
-| Start-saga success                                           | any                                                            | `in_progress`                        | `board.store.ts#completeStart` / `#attachExistingSession`                                 |
+| Trigger                                                      | Source column(s)                                                                 | Target                               | Owner                                                                                     |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------- |
+| Hook `Stop` + `DISPATCH_STATUS: DONE`                        | any except `APPLY_MARKER_EXCLUDED_SOURCES`                                       | `agent_done`                         | `hook-events.ts#applyStopEvent` → `board.store.ts#applyMarker`                            |
+| Hook `Stop` + `DISPATCH_STATUS: NEEDS_INPUT`                 | any except `APPLY_MARKER_EXCLUDED_SOURCES`                                       | `needs_input`                        | same as above                                                                             |
+| Hook `UserPromptSubmit`                                      | `FLIP_BACK_SOURCES` (`needs_input`, `agent_done`, `in_review`)                   | `in_progress`                        | `hook-events.ts#applyPromptSubmit` → `board.store.ts#flipBack`                            |
+| Hook `PreToolUse` (pause-class tool)                         | any except `APPLY_MARKER_EXCLUDED_SOURCES`                                       | `needs_input`                        | `hook-events.ts#applyPreToolUseEvent` → `applyMarker`                                     |
+| Hook `PostToolUse` (pause-class tool)                        | `FLIP_BACK_SOURCES`                                                              | `in_progress`                        | `applyHookEvent`'s `PostToolUse` branch → `flipBack`                                      |
+| Watcher marker decision (pane-parsed)                        | any except `APPLY_MARKER_EXCLUDED_SOURCES`                                       | `needs_input` / `agent_done`         | `watcher.ts#scanSession` reading pure `scan-decision.ts#decideScan` → `applyMarker`       |
+| Watcher flip-back decision                                   | `needs_input` ONLY                                                               | `in_progress`                        | same path → `flipBack`                                                                    |
+| Manual drag / `POST /cards/:id/move`                         | any except `agent_done` as a target, and never `todo → in_progress` (`BOARD-07`) | any allowed pair                     | `board.store.ts#moveCardManual`, gated by `routes/cards.route.ts`                         |
+| Group member mirroring (fan-out, not an independent trigger) | mirrors the writer that triggered it                                             | mirrors the writer that triggered it | `board.store.ts#mirrorMemberColumn`, called from exactly 5 writers                        |
+| Session-lost (3-strike detector, boot reconcile)             | column-preserving                                                                | column-preserving                    | `board.store.ts#markSessionLost`                                                          |
+| Resume / resume-failed                                       | column-preserving                                                                | column-preserving                    | `board.store.ts#resumeSession` / `#recordResumeFailure`                                   |
+| Cleanup (Done teardown)                                      | column-preserving (already `done`)                                               | column-preserving                    | `services/orchestration/cleanup.ts` + store cleanup mutators                              |
+| Card creation                                                | — (new card)                                                                     | `todo` or `inbox`                    | `createLocalCard` / `createGroupCard` / `newInboxCard` via `store/mapping.ts#applyIssues` |
+| Boot hydration legacy migration                              | `in_planning` (retired)                                                          | `todo` / `in_progress`               | `board.store.ts#hydrateFromParsed`, one-way, skips `mirrorMemberColumn`                   |
+| Start-saga success                                           | any                                                                              | `in_progress`                        | `board.store.ts#completeStart` / `#attachExistingSession`                                 |
 
 Conflicts this phase closes, by plan: `flipBack`'s guard covered `needs_input` only (closed in
 Plan 77-01); the Inbox marker-guard hole in `applyMarker` (closed in Plan 77-01, store-side only);
-`moveCardManual`'s blind set into `agent_done` and `todo → in_progress` (closed in Plan 77-02);
+`moveCardManual`'s blind set into `agent_done` and `todo → in_progress` (closed HERE, Plan 77-02);
 `applyMarker`'s event-type derived from the target column rather than passed explicitly, and the
 `hookRoutedAt` double-write window at launch (both closed in Plan 77-03).
+
+`BOARD-07` is the executable answer to FLOW-03/04: `moveCardManual` (`board.store.ts`) now
+consults `isManualMoveAllowed(from, to)` — exported from `store/column-transitions.ts` alongside
+its two named predicates, `blocksAgentDoneManualEntry` and `blocksTodoToInProgressManualMove` —
+inside its `enqueue` callback against the live Map, the TRUE single-writer authority. Agent Done
+can never be a manual target from any source (only a real `applyMarker` completion signal may
+enter it), and `todo → in_progress` is reserved for the start saga, which provisions a session a
+manual move would not. `routes/cards.route.ts#manualMoveTransitionError` reads the SAME predicates
+to return a legible `409` before `moveCardManual` is ever called, so the route's message and the
+store's silent guard can never drift apart. Every other `(from, to)` pair the pre-Phase-77 blind
+set allowed stays allowed unchanged.
 
 Agent Done and In Review carry OPPOSITE asymmetries. Agent Done has an automatic in-edge (a
 marker) and, before Plan 77-01, no automatic out-edge except an already-intentional

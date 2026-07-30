@@ -21,6 +21,7 @@ import {
   APPLY_MARKER_EXCLUDED_SOURCES,
   FLIP_BACK_CLEARS_LAST_MARKER,
   FLIP_BACK_SOURCES,
+  isManualMoveAllowed,
 } from "./column-transitions.js";
 import { isStartingCard, reconcile } from "./mapping.js";
 
@@ -1134,13 +1135,17 @@ class BoardStore extends EventEmitter {
    * overrode. Replaces the plain moveCard on the drag route. Also the sole promote/demote mutator
    * (Inbox and To Do share this same move rather than a new endpoint): an Inbox-to-To-Do
    * transition stamps `promotedAt`, the single-writer store being the ONLY place that field is
-   * ever assigned. No-op if the id is unknown.
+   * ever assigned. `BOARD-07`: no-ops (returns `[]` with no mutation) when
+   * `isManualMoveAllowed(from, column)` is false — this is the TRUE authority for the allowlist,
+   * consulted against the live Map inside the enqueue callback (WR-04 precedent), so it holds even
+   * if a route-level check were ever removed. No-op if the id is unknown.
    */
   moveCardManual(id: string, column: Column): Promise<void> {
     return this.enqueue(() => {
       const c = this.cards.get(id);
       if (!c) return [];
       const from = c.column;
+      if (!isManualMoveAllowed(from, column)) return [];
       c.column = column;
       this.mirrorMemberColumn(c, column);
       if (from === "inbox" && column === "todo") {

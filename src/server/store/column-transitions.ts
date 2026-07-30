@@ -93,3 +93,39 @@ export const APPLY_MARKER_EXCLUDED_SOURCES: readonly Column[] = [
   "done",
   "inbox",
 ] as const;
+
+/**
+ * `BOARD-07`: Agent Done is NEVER a legal manual target from any source — the only sanctioned
+ * entry is a real completion signal via `applyMarker`, never a drag or a bare REST move. Read by
+ * `board.store.ts#moveCardManual` and `routes/cards.route.ts#manualMoveTransitionError`.
+ * @see docs/ARCHITECTURE.md#column-transition-specification
+ */
+export function blocksAgentDoneManualEntry(to: Column): boolean {
+  return to === "agent_done";
+}
+
+/**
+ * `BOARD-07`: To Do -> In Progress is reserved for the start saga (`completeStart` /
+ * `attachExistingSession`), which provisions a session; a manual move would park a card in In
+ * Progress with none. Read by the same two call sites as {@link blocksAgentDoneManualEntry}.
+ */
+export function blocksTodoToInProgressManualMove(
+  from: Column,
+  to: Column,
+): boolean {
+  return from === "todo" && to === "in_progress";
+}
+
+/**
+ * `BOARD-07`: the manual-move allowlist. Every `(from, to)` pair the pre-Phase-77 blind set
+ * allowed stays allowed — this closes exactly the two named holes above, nothing more. The sole
+ * authority is `moveCardManual`, consulted inside the enqueue callback (WR-04 precedent); the
+ * route's use of this same predicate is for a legible message only, never the enforcement point.
+ * @see docs/ARCHITECTURE.md#column-transition-specification
+ */
+export function isManualMoveAllowed(from: Column, to: Column): boolean {
+  return (
+    !blocksAgentDoneManualEntry(to) &&
+    !blocksTodoToInProgressManualMove(from, to)
+  );
+}
