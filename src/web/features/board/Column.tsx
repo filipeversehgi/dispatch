@@ -289,13 +289,18 @@ export function Column({
         </span>
         {manualEntryBlocked && (
           <span
+            title="Agent Done is set automatically by a real agent completion signal — it is never a manual drop target"
             style={{
               color: "var(--text-muted)",
               fontSize: "var(--font-label)",
               fontWeight: "var(--weight-regular)",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              minWidth: 0,
             }}
           >
-            Automatic — completion only
+            Automatic only
           </span>
         )}
       </div>
