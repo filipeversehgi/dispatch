@@ -494,7 +494,11 @@ affordance), `/start` (Restart) is NOT blocked (only `done` 409s), and the past-
 rules apply (the poller never re-upserts it and keeps + gone-flags it if the Linear issue
 vanishes). Dragging a marker-carrying card INTO In Review consumes the marker: `moveCardManual`
 leaves `lastMarker` untouched, so the still-visible marker is deduped against the persisted key
-and the card never bounces straight back out (MARK-04 drag-wins). Any drop into In Review is a
+and the card never bounces straight back out (MARK-04 drag-wins). That holds until the first
+prompt: `BOARD-06` made `in_review` a `flipBack` source, and flipping out of it CLEARS
+`lastMarker`, so a `UserPromptSubmit` (or a pause-tool `PostToolUse`) both moves the card to In
+Progress and re-arms the marker it had consumed. The consumed-marker guarantee is therefore scoped
+to the card's stay in In Review, not to the marker's lifetime. Any drop into In Review is a
 plain optimistic move — To Do → In Progress remains the only orchestrating drop. Cleanup teardown
 remains Done-ONLY: In Review inherits NONE of Done's parked semantics or teardown wiring, so its
 session, terminal, and worktrees stay alive until an explicit drop into Done.
@@ -1359,9 +1363,14 @@ layers, ordered lowest-risk first:
    key on the new channel's first fallback pause — the `Date.now()` seed forbids that), while a
    retried event carrying the SAME `tool_use_id` still yields the SAME key and stays deduped. Flip-back mirrors it: the existing `PostToolUse` branch (today
    only stamping `outputChangedAt`) additionally calls `store.flipBack(cardId)` when the event's
-   validated `tool_name` is in the same pause-tool set; `flipBack`'s own column guard
-   (`c.column !== "needs_input"` → no-op) makes this safe to call unconditionally on every such
-   event. Both new branches sit AFTER the pane-mode no-op guard described above, so they inherit
+   validated `tool_name` is in the same pause-tool set; `flipBack`'s own column guard — since
+   `BOARD-06` widened it, membership in `FLIP_BACK_SOURCES` (`needs_input`, `agent_done`,
+   `in_review`) rather than the original `needs_input`-only test — makes this safe to call
+   unconditionally on every such event. Note what widening changed: a pause-tool `PostToolUse` now
+   also flips a card OUT of `agent_done`/`in_review`, and on those two edges (and only those)
+   `flipBack` additionally clears `lastMarker`, so a card parked on a completion can be pulled back
+   into In Progress by a tool result and can later re-enter Agent Done on a repeat of the identical
+   DONE text. Both new branches sit AFTER the pane-mode no-op guard described above, so they inherit
    the "no pane fallback under explicit `hooks` mode" contract automatically and can never fire
    under `statusChannel: "pane"` — a pane-mode session never even carries `--settings`, so the CLI
    never emits the `PreToolUse`/`PostToolUse` events in the first place. Live-verified 3/3: the
