@@ -92,6 +92,11 @@ const captureFailures = new Map<string, number>();
  * flip-back, and dot pane-diffing — per session, while capture and its 3-strike dead-session
  * detector above the gate stay unconditional on every channel: capture IS the RESIL-01 probe and
  * must run for hook-routed sessions too.
+ * @remarks (`WR-05`) The `applyMarker` case derives its `eventType` from `decision.column` with a
+ * ternary — the one place that derivation survives, because `scan-decision.ts`'s `Decision` type
+ * is replay-frozen and carries no event-type field of its own. This I/O shell is where the frozen
+ * type's column is turned into the caller-supplied literal `applyMarker` now requires; it must
+ * never be pushed back into the store.
  * @see docs/ARCHITECTURE.md#hooks-status-channel
  */
 async function scanSession(
@@ -196,14 +201,20 @@ async function scanSession(
     case "clearLastMarker":
       await store.clearLastMarker(card.id);
       break;
-    case "applyMarker":
+    case "applyMarker": {
+      const eventType =
+        decision.column === "needs_input"
+          ? "status_needs_input"
+          : "status_agent_done";
       await store.applyMarker(
         card.id,
         decision.column,
         decision.reason,
         decision.key,
+        eventType,
       );
       break;
+    }
     case "flipBack":
       await store.flipBack(card.id);
       break;

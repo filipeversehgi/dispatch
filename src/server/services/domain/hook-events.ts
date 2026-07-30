@@ -123,8 +123,10 @@ async function applyStopEvent(
   const marker = parseLastMarker(lastAssistantMessage);
   if (!marker) return;
   const column = marker.kind === "NEEDS_INPUT" ? "needs_input" : "agent_done";
+  const eventType =
+    marker.kind === "NEEDS_INPUT" ? "status_needs_input" : "status_agent_done";
   const reason = marker.reason === "" ? undefined : marker.reason;
-  await store.applyMarker(cardId, column, reason, markerKey(marker));
+  await store.applyMarker(cardId, column, reason, markerKey(marker), eventType);
 }
 
 /**
@@ -174,6 +176,7 @@ async function applyPreToolUseEvent(
     "needs_input",
     displayReason,
     markerKey(marker),
+    "status_needs_input",
   );
 }
 

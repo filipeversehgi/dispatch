@@ -1043,6 +1043,10 @@ class BoardStore extends EventEmitter {
    * is now excluded by an explicit allowlist rather than that accident. Cards in in_progress /
    * needs_input / agent_done / in_review remain eligible (an Agent Done card CAN move to Needs
    * Input on a new distinct marker — intended). SECURITY: never logs card, reason, or pane contents.
+   *
+   * `WR-05`: `eventType` is supplied by the CALLER, not derived from `column` in here — a target
+   * column and its activity-event type happen to correspond 1:1 today only because there are
+   * exactly two attention targets; deriving it here would silently mislabel a future third target.
    * @see docs/ARCHITECTURE.md#single-writer-store
    * @see docs/ARCHITECTURE.md#column-transition-specification
    */
@@ -1051,6 +1055,7 @@ class BoardStore extends EventEmitter {
     column: Column,
     statusReason: string | undefined,
     markerKey: string,
+    eventType: Extract<EventType, "status_needs_input" | "status_agent_done">,
   ): Promise<void> {
     return this.enqueue(() => {
       const c = this.cards.get(id);
@@ -1062,15 +1067,12 @@ class BoardStore extends EventEmitter {
       c.statusReason = statusReason;
       c.lastMarker = markerKey;
       return [
-        this.event(
-          column === "needs_input" ? "status_needs_input" : "status_agent_done",
-          {
-            cardId: id,
-            fromCol: from,
-            toCol: column,
-            reason: statusReason ?? null,
-          },
-        ),
+        this.event(eventType, {
+          cardId: id,
+          fromCol: from,
+          toCol: column,
+          reason: statusReason ?? null,
+        }),
       ];
     });
   }
