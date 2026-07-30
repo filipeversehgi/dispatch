@@ -6,6 +6,7 @@ import { Field } from "../../primitives/Field.js";
 import { Modal, type ModalControl } from "../../primitives/Modal.js";
 import { Notice } from "../../primitives/Notice.js";
 import { MemberRow } from "../board/index.js";
+import { deterministicGroupTitle } from "./group-title.js";
 import { StartModal } from "./StartModal.js";
 
 interface GroupStartModalProps {
@@ -26,9 +27,7 @@ export function GroupStartModal({
 }: GroupStartModalProps) {
   const titleRef = useRef<HTMLInputElement>(null);
   const modalRef = useRef<ModalControl>(null);
-  const [title, setTitle] = useState(() =>
-    members.map((m) => m.identifier).join(" + "),
-  );
+  const [title, setTitle] = useState(() => deterministicGroupTitle(members));
   const [extraDirection, setExtraDirection] = useState("");
   const [error, setError] = useState<{
     text: string;
