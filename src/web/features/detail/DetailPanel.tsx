@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { GripVertical } from "lucide-react";
 import type {
   ActivityEvent,
   Card as CardModel,
@@ -47,6 +48,7 @@ export function DetailPanel({
   const [fullscreen, setFullscreen] = useState(false);
 
   const isCarousel = useMediaQuery(CAROUSEL_QUERY);
+  const isCoarsePointer = useMediaQuery("(pointer: coarse)");
   const takeover = !docked && isCarousel;
   const effectiveFullscreen = fullscreen || takeover;
   const onCloseRef = useRef(onClose);
@@ -125,6 +127,7 @@ export function DetailPanel({
     overlay.style.inset = "0";
     overlay.style.cursor = "col-resize";
     overlay.style.zIndex = "2147483647";
+    overlay.style.touchAction = "none";
     document.body.appendChild(overlay);
 
     function teardown() {
@@ -149,7 +152,8 @@ export function DetailPanel({
       teardown();
       setResizing(false);
       const delta = startX - ev.clientX;
-      if (Math.abs(delta) <= 3) {
+      const tapThreshold = isCoarsePointer ? 8 : 3;
+      if (Math.abs(delta) <= tapThreshold) {
         node!.style.width = preDragStyleWidth;
         return;
       }
@@ -327,9 +331,10 @@ export function DetailPanel({
               position: "absolute",
               left: 0,
               top: 0,
-              width: "8px",
+              width: isCoarsePointer ? "var(--space-xl)" : "8px",
               height: "100%",
               cursor: "col-resize",
+              touchAction: "none",
               zIndex: 3,
               background: "transparent",
               borderLeft:
@@ -337,7 +342,22 @@ export function DetailPanel({
                   ? "2px solid var(--accent)"
                   : "2px solid transparent",
             }}
-          />
+          >
+            {isCoarsePointer && (
+              <GripVertical
+                size={14}
+                strokeWidth={2}
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  top: "50%",
+                  left: "50%",
+                  transform: "translate(-50%, -50%)",
+                  color: "var(--text-muted)",
+                }}
+              />
+            )}
+          </div>
         )}
         {docked && c == null ? (
           <div
