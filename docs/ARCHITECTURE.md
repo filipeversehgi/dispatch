@@ -833,33 +833,52 @@ identity-stable across four separate mutations:
   invisible width, and its absence means a drag can never span a fullscreen transition — the
   pointerup width write is always the plain `clamp()` form.
 
-  Touch drags on this handle have two distinct, separately-diagnosed root causes, not one. First,
-  below the `CAROUSEL_QUERY` breakpoint (`max-width: 1023px`) the handle deliberately does not
-  exist: that query makes `takeover` true, which makes `effectiveFullscreen` true, and the handle
-  only renders under `!docked && !effectiveFullscreen`. The panel is `100vw` there, so there is
-  no width to trade — this is intended behavior, not a defect, and the breakpoint was
-  deliberately not lowered to add one. Second, at `>=1024px` the handle DID render but declared
-  no
+  Touch drags on this handle have two distinct, separately-diagnosed root causes, not one. The
+  handle renders only under `!docked && !effectiveFullscreen`. First, below the `CAROUSEL_QUERY`
+  breakpoint (`max-width: 1023px`) in the UNDOCKED panel, the handle deliberately does not exist:
+  that query makes `takeover` true, which makes `effectiveFullscreen` true, so the guard fails via
+  its `!effectiveFullscreen` term. The panel is `100vw` there, so there is no width to trade — this
+  is intended behavior, not a defect, and the
+  breakpoint was deliberately not lowered to add one. In DOCKED (Orca) mode the handle is absent
+  at every width instead, via the guard's `!docked` term — `takeover` is `false` in docked mode
+  regardless of viewport, so `effectiveFullscreen`/`CAROUSEL_QUERY` play no part there. Second, at
+  `>=1024px` in the undocked panel the handle DID render but declared no
   `touch-action`, which was the actual bug: with the default `auto`, the browser is free to decide
   mid-gesture that a finger's perpendicular jitter on an 8px target is an attempted page pan, take
   the gesture over, and fire `pointercancel` on the handle — which `handlePointerCancel` correctly
   treats as an abort and restores `preDragStyleWidth`, producing a silent snap-back that reads as
-  "touch just does not work here." The fix is `touch-action: none` on the handle AND on the drag
-  overlay (a finger that slides off the narrow handle mid-drag must not pan the page either). It
-  is deliberately NOT `touchstart`/`touchmove` plus `preventDefault()`, which would run a second
-  event pipeline competing with the existing Pointer Events one for the same physical gesture.
-  Once `touch-action: none` is declared, `pointercancel` reverts to meaning a genuine
-  cancellation, so its abort-and-restore semantics above are correct as written and unchanged.
+  "touch just does not work here." The fix is `touch-action: none` on the handle — that is the
+  load-bearing declaration, because the browser resolves a pointer's effective touch-action once,
+  at contact, from the hit-tested element's ancestor chain; the overlay does not exist yet at that
+  moment (it is created inside the `pointerdown` handler) and is not an ancestor of the handle in
+  any case, so its own `touch-action: none` cannot affect the in-flight drag — that pointer's
+  events stay addressed to the handle via `setPointerCapture` regardless of where the finger
+  travels. The overlay's `touch-action: none` is defence for a SECOND pointer landing on it
+  mid-drag; `handleResizePointerDown`'s re-entrancy guard (`cleanupDragRef.current != null`, first
+  statement) now rejects that second pointer outright, so this is belt-and-braces, not
+  load-bearing. It is deliberately NOT `touchstart`/`touchmove` plus `preventDefault()`, which
+  would run a second event pipeline competing with the existing Pointer Events one for the same
+  physical gesture. Once `touch-action: none` is declared, `pointercancel` reverts to meaning a
+  genuine cancellation, so its abort-and-restore semantics above are correct as written and
+  unchanged.
 
-  The handle's coarse-pointer branch (24px hit width, 8px tap threshold, persistent grip icon)
-  gates on `(pointer: coarse)`, which reflects device capability, not the live input: on a
-  touchscreen laptop it stays true while a mouse is in use, and on an iPad it stays true with a
-  Magic Keyboard trackpad attached (WebKit deliberately scoped its `any-pointer`/`any-hover` fix
-  to the `any-`-prefixed queries only, leaving the primary `pointer`/`hover` queries touch-sticky
-  — bug 209292). This is harmless because every coarse branch is either inert for
-  `pointerType: "mouse"` or a strict superset of the fine-pointer behavior. Do not read a coarse
-  render as proof the user is touching the screen, and do not "fix" it by reading `pointerType`
-  per event.
+  The handle's STYLING coarse-pointer branches (24px hit width, persistent grip icon) gate on
+  `(pointer: coarse)`, which reflects device capability, not the live input: on a touchscreen
+  laptop it stays true while a mouse is in use, and on an iPad it stays true with a Magic Keyboard
+  trackpad attached (WebKit deliberately scoped its `any-pointer`/`any-hover` fix to the
+  `any-`-prefixed queries only, leaving the primary `pointer`/`hover` queries touch-sticky — bug
+  209292). This is deliberately over-broad but harmless: the wider hit area and the grip icon are
+  a strict superset of the fine-pointer rendering, painted before any pointer exists, so there is
+  nothing for a live `pointerType` to gate. Do not read a coarse render as proof the user is
+  touching the screen.
+
+  The TAP-THRESHOLD branch does NOT use `(pointer: coarse)` — unlike the styling above, an
+  8px-vs-3px threshold that fires on the wrong pointer type is not harmless (it would silently
+  raise the threshold for a mouse drag on the same hybrid hardware), so
+  `handleResizePointerDown` reads `e.pointerType` once at `pointerdown` and captures it as
+  `coarseGesture` for that drag's closures. This is per-drag capture, not the per-`pointermove`
+  `pointerType` sniffing this section warns against elsewhere — the value is fixed for the whole
+  gesture, exactly like `isCoarsePointer` is fixed for the whole render.
 
 **Docked (Orca) mode is a SECOND style-only derivation of the same `<aside>`, re-deriving `PANEL-03`
 for a second surface.** `position` stays `fixed` in BOTH modes — only `top`/`left`/`width`/`height`/
