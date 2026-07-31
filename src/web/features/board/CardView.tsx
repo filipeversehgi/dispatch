@@ -17,6 +17,7 @@ import type {
 import { startCard } from "../../lib/api.js";
 import { MoveToPicker } from "./MoveToPicker.js";
 import { formatAge, nowMs } from "../../lib/format-age.js";
+import { formatCleanupCountdown } from "../../lib/format-cleanup-countdown.js";
 import { useResumeFeedback } from "../../hooks/useResumeFeedback.js";
 import {
   GoneBadge,
@@ -637,6 +638,16 @@ export function CardView({
               }
               label="Uncommitted work — cleanup blocked"
             />
+          </div>
+        )}
+
+        {card.cleanupBlocked == null && card.cleanupDueAt != null && (
+          <div style={{ marginTop: "var(--space-xs)" }}>
+            <Notice tone="muted">
+              <span title={new Date(card.cleanupDueAt).toLocaleString()}>
+                {formatCleanupCountdown(card.cleanupDueAt, nowMs())}
+              </span>
+            </Notice>
           </div>
         )}
 

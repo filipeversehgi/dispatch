@@ -33,7 +33,6 @@ interface BoardProps {
   selectedCardId?: string | null;
   onSelectCard?: (id: string) => void;
   onStartRequest?: (req: string | StartRequest) => void;
-  onCleanupRequest?: (id: string) => void;
   onEditPlaybooks: () => void;
   onOpenInbox?: () => void;
 }
@@ -47,7 +46,6 @@ export function Board({
   selectedCardId,
   onSelectCard,
   onStartRequest,
-  onCleanupRequest,
   onEditPlaybooks,
   onOpenInbox,
 }: BoardProps) {
@@ -242,10 +240,6 @@ export function Board({
         ),
       );
     });
-
-    if (targetColumn === "done" && (card.tmuxSession || card.workspacePath)) {
-      onCleanupRequest?.(cardId);
-    }
   }
 
   function handleDragEnd(event: DragEndEvent) {

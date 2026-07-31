@@ -292,7 +292,6 @@ export function App() {
             selectedCardId={selectedCard ? selectedCardId : null}
             onSelectCard={setSelectedCardId}
             onStartRequest={requestStart}
-            onCleanupRequest={setCleanupCardId}
             onEditPlaybooks={() => {
               setSettingsInitialTab("playbooks");
               setSettingsOpen(true);
