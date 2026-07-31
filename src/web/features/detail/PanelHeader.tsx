@@ -17,6 +17,7 @@ import { isDemoteEligible } from "../../../shared/demote-eligibility.js";
 import { Button } from "../../primitives/Button.js";
 import { Field } from "../../primitives/Field.js";
 import { IconButton } from "../../primitives/IconButton.js";
+import { useMediaQuery } from "../../hooks/useMediaQuery.js";
 
 function VsCodeMark() {
   return (
@@ -69,12 +70,15 @@ export function PanelHeader({
 }: PanelHeaderProps) {
   const c = card;
   const [syncPending, setSyncPending] = useState(false);
+  const narrowViewport = useMediaQuery("(max-width: 520px)");
+  const narrowDocked = docked && narrowViewport;
   return (
     <div
       style={{
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
+        flexWrap: "wrap",
         gap: "var(--space-lg)",
         padding: "var(--space-sm) var(--space-lg)",
         borderBottom: "1px solid var(--border)",
@@ -122,13 +126,15 @@ export function PanelHeader({
             variant="secondary"
             aria-expanded={detailsExpanded}
             onClick={onToggleDetails}
+            aria-label={narrowDocked ? "Details" : undefined}
+            title={narrowDocked ? "Details" : undefined}
           >
             {detailsExpanded ? (
               <ChevronDown size={14} strokeWidth={2} aria-hidden="true" />
             ) : (
               <ChevronRight size={14} strokeWidth={2} aria-hidden="true" />
             )}
-            Details
+            {!narrowDocked && "Details"}
           </Button>
         )}
 
