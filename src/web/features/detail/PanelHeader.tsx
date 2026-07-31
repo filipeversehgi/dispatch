@@ -81,6 +81,7 @@ export function PanelHeader({
         flexWrap: "wrap",
         gap: "var(--space-lg)",
         padding: "var(--space-sm) var(--space-lg)",
+        paddingLeft: "var(--space-xl)",
         borderBottom: "1px solid var(--border)",
       }}
     >

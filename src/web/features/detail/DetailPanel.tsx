@@ -427,7 +427,7 @@ export function DetailPanel({
                       flex: "0 1 auto",
                       maxHeight: "40%",
                       overflowY: "auto",
-                      padding: "var(--space-lg)",
+                      padding: "var(--space-xl)",
                     }}
                   >
                     <ReferenceBlocks card={c} members={members} />
@@ -470,7 +470,7 @@ export function DetailPanel({
                       display: "flex",
                       flexDirection: "column",
                       gap: "var(--space-sm)",
-                      padding: "var(--space-lg)",
+                      padding: "var(--space-xl)",
                       borderBottom: "1px solid var(--border)",
                     }}
                   >
