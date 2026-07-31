@@ -53,9 +53,11 @@ export function clearPanelWidth(): void {
  * resizes or resets.
  *
  * @remarks
- * Pointer-only by design: this is a single-user, pointer-primary local tool, the resize handle
- * mirrors the pre-existing Column.tsx precedent (also pointer-only, no keyboard alternative),
- * and RESIZE-01's success criteria only requires drag-to-resize.
+ * The width commits from `handleResizePointerDown`'s `pointerup` handler for both mouse and
+ * touch pointers. Touch reaches `pointerup` only because the handle and the drag overlay
+ * declare `touch-action: none`: without it the browser claims the finger drag as a page pan
+ * and fires `pointercancel`, which aborts the drag and restores the pre-drag width instead of
+ * committing it. There is still no keyboard path. @see docs/ARCHITECTURE.md#panel-iframe-identity
  */
 export function usePanelWidth(): number | null {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
