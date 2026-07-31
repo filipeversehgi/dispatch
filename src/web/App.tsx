@@ -309,6 +309,7 @@ export function App() {
           members={selectedCardMembers}
           onClose={() => setSelectedCardId(null)}
           onStartRequest={requestStart}
+          onCleanupRequest={setCleanupCardId}
           docked={viewMode === "orca"}
         />
       }

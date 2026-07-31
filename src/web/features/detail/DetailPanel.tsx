@@ -29,6 +29,7 @@ interface DetailPanelProps {
   members?: CardModel[];
   onClose: () => void;
   onStartRequest?: (id: string) => void;
+  onCleanupRequest?: (id: string) => void;
   docked?: boolean;
 }
 
@@ -40,6 +41,7 @@ export function DetailPanel({
   members,
   onClose,
   onStartRequest,
+  onCleanupRequest,
   docked = false,
 }: DetailPanelProps) {
   const open = card != null;
@@ -409,6 +411,7 @@ export function DetailPanel({
               docked={docked}
               takeover={takeover}
               onStartRequest={onStartRequest}
+              onCleanupRequest={onCleanupRequest}
             />
 
             <div

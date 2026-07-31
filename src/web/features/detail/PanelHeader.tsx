@@ -7,6 +7,7 @@ import {
   Maximize2,
   Minimize2,
   Play,
+  Trash2,
   Upload,
   X,
 } from "lucide-react";
@@ -53,6 +54,7 @@ interface PanelHeaderProps {
   docked?: boolean;
   takeover?: boolean;
   onStartRequest?: (id: string) => void;
+  onCleanupRequest?: (id: string) => void;
 }
 
 export function PanelHeader({
@@ -67,11 +69,14 @@ export function PanelHeader({
   docked = false,
   takeover = false,
   onStartRequest,
+  onCleanupRequest,
 }: PanelHeaderProps) {
   const c = card;
   const [syncPending, setSyncPending] = useState(false);
   const narrowViewport = useMediaQuery("(max-width: 520px)");
   const narrowPanel = (docked || takeover) && narrowViewport;
+  const awaitingCleanup =
+    c?.column === "done" && (c.tmuxSession != null || c.workspacePath != null);
   return (
     <div
       style={{
@@ -228,6 +233,17 @@ export function PanelHeader({
             <Upload size={12} strokeWidth={2} aria-hidden="true" />
             {!narrowPanel &&
               (syncPending || c.syncing === true ? "Syncing…" : "Sync Linear")}
+          </Button>
+        )}
+        {awaitingCleanup && (
+          <Button
+            variant="secondary"
+            onClick={() => c && onCleanupRequest?.(c.id)}
+            aria-label={narrowPanel ? "Clean up now" : undefined}
+            title={narrowPanel ? "Clean up now" : undefined}
+          >
+            <Trash2 size={12} strokeWidth={2} aria-hidden="true" />
+            {!narrowPanel && "Clean up now"}
           </Button>
         )}
         {docked && c?.column === "todo" && onStartRequest && (
