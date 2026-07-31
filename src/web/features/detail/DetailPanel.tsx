@@ -118,6 +118,7 @@ export function DetailPanel({
     const startWidth = node.getBoundingClientRect().width;
     const preDragStyleWidth = node.style.width;
     const maxPx = window.innerWidth * 0.9;
+    const coarseGesture = e.pointerType !== "mouse";
     setResizing(true);
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
@@ -152,7 +153,7 @@ export function DetailPanel({
       teardown();
       setResizing(false);
       const delta = startX - ev.clientX;
-      const tapThreshold = isCoarsePointer ? 8 : 3;
+      const tapThreshold = coarseGesture ? 8 : 3;
       if (Math.abs(delta) <= tapThreshold) {
         node!.style.width = preDragStyleWidth;
         return;
