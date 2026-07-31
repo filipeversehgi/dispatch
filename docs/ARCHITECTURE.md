@@ -833,6 +833,34 @@ identity-stable across four separate mutations:
   invisible width, and its absence means a drag can never span a fullscreen transition — the
   pointerup width write is always the plain `clamp()` form.
 
+  Touch drags on this handle have two distinct, separately-diagnosed root causes, not one. First,
+  below the `CAROUSEL_QUERY` breakpoint (`max-width: 1023px`) the handle deliberately does not
+  exist: that query makes `takeover` true, which makes `effectiveFullscreen` true, and the handle
+  only renders under `!docked && !effectiveFullscreen`. The panel is `100vw` there, so there is
+  no width to trade — this is intended behavior, not a defect, and the breakpoint was
+  deliberately not lowered to add one. Second, at `>=1024px` the handle DID render but declared
+  no
+  `touch-action`, which was the actual bug: with the default `auto`, the browser is free to decide
+  mid-gesture that a finger's perpendicular jitter on an 8px target is an attempted page pan, take
+  the gesture over, and fire `pointercancel` on the handle — which `handlePointerCancel` correctly
+  treats as an abort and restores `preDragStyleWidth`, producing a silent snap-back that reads as
+  "touch just does not work here." The fix is `touch-action: none` on the handle AND on the drag
+  overlay (a finger that slides off the narrow handle mid-drag must not pan the page either). It
+  is deliberately NOT `touchstart`/`touchmove` plus `preventDefault()`, which would run a second
+  event pipeline competing with the existing Pointer Events one for the same physical gesture.
+  Once `touch-action: none` is declared, `pointercancel` reverts to meaning a genuine
+  cancellation, so its abort-and-restore semantics above are correct as written and unchanged.
+
+  The handle's coarse-pointer branch (24px hit width, 8px tap threshold, persistent grip icon)
+  gates on `(pointer: coarse)`, which reflects device capability, not the live input: on a
+  touchscreen laptop it stays true while a mouse is in use, and on an iPad it stays true with a
+  Magic Keyboard trackpad attached (WebKit deliberately scoped its `any-pointer`/`any-hover` fix
+  to the `any-`-prefixed queries only, leaving the primary `pointer`/`hover` queries touch-sticky
+  — bug 209292). This is harmless because every coarse branch is either inert for
+  `pointerType: "mouse"` or a strict superset of the fine-pointer behavior. Do not read a coarse
+  render as proof the user is touching the screen, and do not "fix" it by reading `pointerType`
+  per event.
+
 **Docked (Orca) mode is a SECOND style-only derivation of the same `<aside>`, re-deriving `PANEL-03`
 for a second surface.** `position` stays `fixed` in BOTH modes — only `top`/`left`/`width`/`height`/
 `borderLeft`/`transform`/`transition` branch on the `docked` prop, the exact same category of change
