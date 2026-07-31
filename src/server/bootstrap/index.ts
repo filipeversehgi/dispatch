@@ -39,6 +39,7 @@ import { reconcileSessions } from "./reconcile.js";
 import { resolveEditors } from "../adapters/editors.js";
 import { startUpdateCheckLoop } from "../services/orchestration/update.js";
 import { startCleanupScheduler } from "../services/orchestration/cleanup-scheduler.js";
+import { DEFAULT_CLEANUP_DELAY_DAYS } from "../../shared/types.js";
 
 const DEFAULT_PORT = 4700;
 const DEFAULT_POLL_INTERVAL_MS = 60_000;
@@ -256,6 +257,9 @@ export async function main(opts: MainOptions = {}): Promise<{ port: number }> {
   await store.load();
 
   store.setPollInterval(config.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
+  store.setCleanupDelayDays(
+    config.cleanupDelayDays ?? DEFAULT_CLEANUP_DELAY_DAYS,
+  );
   await ensureHyperlinksTerminalFeature();
   await reconcileSessions();
   startCleanupScheduler();

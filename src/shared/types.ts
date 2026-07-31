@@ -582,6 +582,11 @@ export interface Config {
   updateCheck?: boolean;
   /** The playbook name remembered from the last successful kickoff; absent when never set. */
   lastUsedPlaybook?: string;
+  /**
+   * Whole days a finished card keeps its workspace before automatic cleanup (`LIFE-04`); absent
+   * resolves to {@link DEFAULT_CLEANUP_DELAY_DAYS}. `0` means clean up immediately on Done.
+   */
+  cleanupDelayDays?: number;
 }
 
 /**

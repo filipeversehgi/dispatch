@@ -1305,6 +1305,19 @@ teardown. Every automatic run is `force: false`, so the existing dirty-worktree 
 refuses it (CLEAN-07); a blocked automatic run is terminal — surfaced via `cleanupBlocked`, never
 retried or backed off.
 
+**Cleanup delay setting (`LIFE-04`).** The delay is whole days in `~/.dispatch/config.json` under
+`cleanupDelayDays`, default 7, `0` meaning immediate cleanup on Done. Two different validation
+postures apply and must not be conflated: the boot loader (`readCleanupDelayDays`) tolerantly
+defaults a malformed or out-of-range hand-edited value rather than blocking boot, while the write
+route (`PUT /config/cleanup-delay`) REJECTS an invalid value with 400 — a live user action gets
+visible feedback, never a silent clamp. The accepted range is 0-90 days in both places. A
+successful write updates the config file (`updateCleanupDelayDays`) and the in-memory store
+(`BoardStore#setCleanupDelayDays`) together, config file first, so a write failure can never leave
+the running store ahead of what is persisted — the new value applies without a restart. Changing
+the setting never reschedules an already-stamped card: `setCleanupDelayDays` only changes the delay
+`moveCardManual` reads for a FUTURE Done arrival; a card already awaiting cleanup keeps the due date
+it was given.
+
 **Delete-before-kill teardown ordering (`NEW-14`).** The steps run in a LOCKED order, each idempotent
 and no-op tolerant so a re-run after a partial failure is safe:
 

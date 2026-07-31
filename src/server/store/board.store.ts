@@ -101,9 +101,9 @@ class BoardStore extends EventEmitter {
   private pollIntervalMs: number | null = null;
   /**
    * Deferred-cleanup delay (ms) `moveCardManual` stamps onto `cleanupDueAt` on a genuine Done
-   * arrival (`LIFE-02`). Boot-time static config today, initialised from the default; 81-03 wires
-   * a public setter (mirroring `setPollInterval`) that config load/save calls, so this stays a
-   * boot-only value until that plan lands.
+   * arrival (`LIFE-02`). Initialised from the default; the days-based setter below (`LIFE-04`)
+   * updates it live at boot and on a Settings save — never retroactively, since only a FUTURE Done
+   * arrival reads this field.
    */
   private cleanupDelayMs = DEFAULT_CLEANUP_DELAY_DAYS * MS_PER_DAY;
   /**
@@ -454,6 +454,16 @@ class BoardStore extends EventEmitter {
    */
   setPollInterval(ms: number): void {
     this.pollIntervalMs = ms;
+  }
+
+  /**
+   * Set the deferred-cleanup delay (`LIFE-04`) applied to FUTURE Done arrivals only. Plain setter,
+   * mirroring `setPollInterval` — bypasses the enqueue queue since it mutates no card and emits no
+   * snapshot. Never touches an already-stamped `cleanupDueAt`: a card keeps the due date it was
+   * given at Done, so changing this value can never reschedule a card already awaiting cleanup.
+   */
+  setCleanupDelayDays(days: number): void {
+    this.cleanupDelayMs = days * MS_PER_DAY;
   }
 
   /**

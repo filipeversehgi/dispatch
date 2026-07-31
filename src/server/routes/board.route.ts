@@ -1,8 +1,13 @@
 import { Router } from "express";
-import { DEFAULT_FILTERS, type SourceFilters } from "../../shared/types.js";
+import {
+  DEFAULT_CLEANUP_DELAY_DAYS,
+  DEFAULT_FILTERS,
+  type SourceFilters,
+} from "../../shared/types.js";
 import { store } from "../store/board.store.js";
 import {
   getOrchestrationConfig,
+  updateCleanupDelayDays,
   updateSourceFilters,
 } from "../services/infra/config-holder.js";
 import {
@@ -202,4 +207,34 @@ boardRouter.put("/sources/:source/filters", (req, res) => {
   updateSourceFilters(source, filters);
   pollNow();
   res.status(200).json({ filters });
+});
+
+/**
+ * Validate an untrusted cleanup-delay write (`LIFE-04`) before it can reach the config file or the
+ * live store: a whole number of days in `[0, 90]`. Deliberately a SIBLING of `isValidFilters`, not
+ * an extension of it — that guard is scoped to the `SourceFilters` shape alone.
+ */
+function isValidCleanupDelayDays(x: unknown): x is number {
+  return typeof x === "number" && Number.isInteger(x) && x >= 0 && x <= 90;
+}
+
+boardRouter.get("/config/cleanup-delay", (_req, res) => {
+  res.status(200).json({
+    cleanupDelayDays:
+      getOrchestrationConfig()?.cleanupDelayDays ?? DEFAULT_CLEANUP_DELAY_DAYS,
+  });
+});
+
+boardRouter.put("/config/cleanup-delay", (req, res) => {
+  const days = (req.body as { cleanupDelayDays?: unknown } | undefined)
+    ?.cleanupDelayDays;
+  if (!isValidCleanupDelayDays(days)) {
+    res.status(400).json({
+      error: "cleanup delay must be a whole number of days between 0 and 90",
+    });
+    return;
+  }
+  updateCleanupDelayDays(days);
+  store.setCleanupDelayDays(days);
+  res.status(200).json({ cleanupDelayDays: days });
 });

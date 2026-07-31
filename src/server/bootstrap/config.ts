@@ -7,7 +7,10 @@ import type {
   SourceFilters,
   StatusChannel,
 } from "../../shared/types.js";
-import { DEFAULT_FILTERS } from "../../shared/types.js";
+import {
+  DEFAULT_CLEANUP_DELAY_DAYS,
+  DEFAULT_FILTERS,
+} from "../../shared/types.js";
 import { StartupError } from "./binary-check.js";
 import { CONFIG_PATH, DISPATCH_DIR } from "../services/infra/paths.js";
 
@@ -36,6 +39,9 @@ const CONFIG_TEMPLATE = {
   "// updateCheck":
     "Set to false to disable the on-boot update check. Default true.",
   updateCheck: true,
+  "// cleanupDelayDays":
+    "Days a finished card keeps its workspace before automatic cleanup. 0 = clean up immediately on Done. Default 7, max 90.",
+  cleanupDelayDays: DEFAULT_CLEANUP_DELAY_DAYS,
 };
 
 /**
@@ -61,6 +67,29 @@ function readStatusChannel(parsed: Record<string, unknown>): StatusChannel {
  */
 function readUpdateCheck(parsed: Record<string, unknown>): boolean {
   return parsed.updateCheck === false ? false : true;
+}
+
+/**
+ * Read the `cleanupDelayDays` preference: a whole number of days in `[0, 90]`, defaulting to
+ * {@link DEFAULT_CLEANUP_DELAY_DAYS}.
+ * @remarks Deliberately does NOT throw `StartupError` the way {@link readStatusChannel} does for an
+ * invalid enum literal — this is a plain numeric preference, not a closed set of routing literals,
+ * so a malformed or out-of-range hand-edited value safely falls back to the default rather than
+ * blocking boot. The RUNTIME write route (`PUT /config/cleanup-delay`) enforces the same range but
+ * REJECTS an invalid value with 400 instead of defaulting it — that posture difference is
+ * deliberate: a live user action gets visible feedback, a hand-edited file gets tolerance.
+ */
+function readCleanupDelayDays(parsed: Record<string, unknown>): number {
+  const value = parsed.cleanupDelayDays;
+  if (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value <= 90
+  ) {
+    return value;
+  }
+  return DEFAULT_CLEANUP_DELAY_DAYS;
 }
 
 /**
@@ -278,6 +307,7 @@ export function loadConfig(): Config {
     updateCheck: readUpdateCheck(parsed),
     sources: { linear: { apiKey: rawKey, filters: readNestedFilters(parsed) } },
     lastUsedPlaybook: readLastUsedPlaybook(parsed),
+    cleanupDelayDays: readCleanupDelayDays(parsed),
   };
 
   const hasKey = config.linearApiKey.length > 0;

@@ -210,3 +210,40 @@ export function updateLastUsedPlaybook(name: string): void {
     orchestrationConfig.lastUsedPlaybook = name;
   }
 }
+
+/**
+ * Persist the cleanup delay (`LIFE-04`) to `~/.dispatch/config.json` and make it live immediately.
+ *
+ * @remarks Called only from the validated `PUT /config/cleanup-delay` route, which has already
+ * rejected a non-integer or out-of-range value with 400 — this function never re-validates.
+ * Flat top-level key, same shape as {@link updateLastUsedPlaybook}: no nested object to preserve.
+ * Every other top-level key survives verbatim.
+ */
+export function updateCleanupDelayDays(days: number): void {
+  const raw = fs.readFileSync(CONFIG_PATH, "utf8");
+  let parsed: Record<string, unknown>;
+  try {
+    const p = JSON.parse(raw) as unknown;
+    if (typeof p !== "object" || p === null || Array.isArray(p)) {
+      throw new Error("not an object");
+    }
+    parsed = p as Record<string, unknown>;
+  } catch (err) {
+    const pos = /position (\d+)/.exec((err as Error).message)?.[1];
+    throw new Error(
+      `config at ${CONFIG_PATH} is not valid JSON${pos ? ` (near position ${pos})` : ""}`,
+      { cause: err },
+    );
+  }
+
+  const next = { ...parsed, cleanupDelayDays: days };
+
+  writeFileAtomic.sync(CONFIG_PATH, JSON.stringify(next, null, 2) + "\n", {
+    mode: 0o600,
+  });
+  fs.chmodSync(CONFIG_PATH, 0o600);
+
+  if (orchestrationConfig) {
+    orchestrationConfig.cleanupDelayDays = days;
+  }
+}
