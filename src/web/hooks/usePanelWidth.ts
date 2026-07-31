@@ -54,10 +54,12 @@ export function clearPanelWidth(): void {
  *
  * @remarks
  * The width commits from `handleResizePointerDown`'s `pointerup` handler for both mouse and
- * touch pointers. Touch reaches `pointerup` only because the handle and the drag overlay
- * declare `touch-action: none`: without it the browser claims the finger drag as a page pan
- * and fires `pointercancel`, which aborts the drag and restores the pre-drag width instead of
- * committing it. There is still no keyboard path. @see docs/ARCHITECTURE.md#panel-iframe-identity
+ * touch pointers. Touch reaches `pointerup` only because the handle declares
+ * `touch-action: none`: without it the browser claims the finger drag as a page pan and fires
+ * `pointercancel`, which aborts the drag and restores the pre-drag width instead of committing
+ * it. There is still no keyboard path.
+ *
+ * @see docs/ARCHITECTURE.md#panel-iframe-identity
  */
 export function usePanelWidth(): number | null {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
