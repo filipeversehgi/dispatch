@@ -38,6 +38,7 @@ import { startMarkerWatcher } from "../adapters/markers/watcher.js";
 import { reconcileSessions } from "./reconcile.js";
 import { resolveEditors } from "../adapters/editors.js";
 import { startUpdateCheckLoop } from "../services/orchestration/update.js";
+import { startCleanupScheduler } from "../services/orchestration/cleanup-scheduler.js";
 
 const DEFAULT_PORT = 4700;
 const DEFAULT_POLL_INTERVAL_MS = 60_000;
@@ -257,6 +258,7 @@ export async function main(opts: MainOptions = {}): Promise<{ port: number }> {
   store.setPollInterval(config.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS);
   await ensureHyperlinksTerminalFeature();
   await reconcileSessions();
+  startCleanupScheduler();
   await sweepStrayTunnels().catch((err: unknown) => {
     console.warn(
       `[cloudflared] boot orphan sweep rejected unexpectedly: ${(err as Error).message}`,

@@ -1167,6 +1167,24 @@ class BoardStore extends EventEmitter {
   }
 
   /**
+   * Synchronous read of every card whose automatic-cleanup schedule has elapsed (`LIFE-03`): still
+   * in Done, `cleanupDueAt` set and at or before `now`, and no start saga in flight. The column and
+   * `isStarting` checks reproduce, in the scheduler's path, the two defense-in-depth guards
+   * `routes/cards.route.ts` already applies to the manual `/cleanup` route — a stray schedule must
+   * never tear down a card that left Done, and cleanup must never race a start saga building the
+   * same worktrees.
+   */
+  cardsDueForCleanup(now: number): Card[] {
+    return [...this.cards.values()].filter(
+      (card) =>
+        card.column === "done" &&
+        card.cleanupDueAt != null &&
+        card.cleanupDueAt <= now &&
+        !this.isStarting(card.id),
+    );
+  }
+
+  /**
    * Manual drag move (Phase 4, MARK-04): set the column and, when the new column is neither
    * attention column (needs_input / agent_done), clear statusReason — as ONE atomic mutation.
    * `lastMarker` is left UNTOUCHED so a drag CONSUMES the current marker: the watcher still sees
@@ -1434,6 +1452,21 @@ class BoardStore extends EventEmitter {
       const card = this.cards.get(id);
       if (card) {
         card.cleanupBlocked = undefined;
+      }
+      return [];
+    });
+  }
+
+  /**
+   * Clear a card's pending automatic-cleanup schedule. Called BEFORE `cleanupWorkspace` dispatches
+   * — `LIFE-03`'s first double-run guard, so a second tick can no longer see the card as due. No-op
+   * if the id is unknown or the schedule is already cleared.
+   */
+  clearCleanupDue(id: string): Promise<void> {
+    return this.enqueue(() => {
+      const card = this.cards.get(id);
+      if (card) {
+        card.cleanupDueAt = undefined;
       }
       return [];
     });

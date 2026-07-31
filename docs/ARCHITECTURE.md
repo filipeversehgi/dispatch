@@ -1263,9 +1263,11 @@ server-derived paths; it is scoped to `services/orchestration/cleanup.ts` (`clea
 cross-module touchpoints in the store (`recordCleanupWarning`/`finishCleanup`), the `/cleanup`
 route, and the `.tsx` cards/modal that offer it. Its home is written once here.
 
-**Done-card teardown saga, fire-and-forget and quiet (`LIFE-01`).** Cleanup runs fire-and-forget off
-the `/cleanup` route AFTER the optimistic Done move and NEVER blocks the board; the route returns an
-immediate 202. The outcome reaches the UI ONLY over SSE: a clean run calls `finishCleanup` (a quiet
+**Done-card teardown saga, fire-and-forget and quiet (`LIFE-01`).** Cleanup has two callers — the
+`/cleanup` route (manual) and the automatic due-cleanup scheduler (`LIFE-03`) — both fire-and-forget
+and both share the same never-block, report-over-SSE contract; the scheduler has no route at all.
+Cleanup runs fire-and-forget off the `/cleanup` route AFTER the optimistic Done move and NEVER blocks
+the board; the route returns an immediate 202. The outcome reaches the UI ONLY over SSE: a clean run calls `finishCleanup` (a quiet
 state clear, no banner), a partial failure calls `recordCleanupWarning` which surfaces a MUTED,
 never-destructive card warning (mirroring the Start warning; UI-SPEC lock). Every path and session is
 derived from `card.*` + configured `repoPaths` — NOTHING from the request body (the route passes only
@@ -1287,6 +1289,17 @@ client timer (`format-cleanup-countdown.ts` mirrors `format-age.ts`'s pure rende
 idiom). A card with an outstanding `cleanupBlocked` refusal keeps its `cleanupDueAt` unless an
 automatic run cleared it before dispatching — the two fields CAN coexist on the manual-cleanup
 path, and the blocked notice always takes precedence over the countdown when both are present.
+
+**Automatic due-cleanup runner (`LIFE-03`).** A services-tier, self-rescheduling `setTimeout` +
+`unref` loop (never `setInterval`) — `services/orchestration/cleanup-scheduler.ts#startCleanupScheduler`
+— starts immediately after `reconcileSessions()` at boot. Its first tick doubles as the boot sweep
+for any schedule that elapsed while the process was stopped, so no separate catch-up path exists.
+The loop never dispatches for a card outside Done or with a start saga in flight
+(`cardsDueForCleanup`'s two guards). Double-run is prevented in two layers: the due date is cleared
+BEFORE dispatch, and an in-process in-flight card-id set blocks re-entry against a still-running
+teardown. Every automatic run is `force: false`, so the existing dirty-worktree preflight still
+refuses it (CLEAN-07); a blocked automatic run is terminal — surfaced via `cleanupBlocked`, never
+retried or backed off.
 
 **Delete-before-kill teardown ordering (`NEW-14`).** The steps run in a LOCKED order, each idempotent
 and no-op tolerant so a re-run after a partial failure is safe:

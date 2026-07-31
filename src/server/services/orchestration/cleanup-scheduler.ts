@@ -1,0 +1,73 @@
+import { store } from "../../store/board.store.js";
+import { cleanupWorkspace } from "./cleanup.js";
+
+/**
+ * Tick cadence for the automatic due-cleanup sweep. One minute: the UI's finest countdown
+ * granularity is `<1m` (`format-cleanup-countdown.ts`), and Phase 82 will grow the retained Done
+ * population, so a tighter cadence buys no visible responsiveness and only costs an extra scan.
+ */
+const CLEANUP_TICK_MS = 60_000;
+
+/**
+ * Card ids with an automatic teardown currently dispatched. Transient, in-process only — NOT a
+ * store field, mirroring `board.store.ts`'s `inFlightStarts` — the second of `LIFE-03`'s two
+ * double-run guards, alongside clearing `cleanupDueAt` before dispatch.
+ */
+const inFlight = new Set<string>();
+
+/**
+ * Tear down every past-due card once, non-forced. `store.clearCleanupDue` runs BEFORE
+ * `cleanupWorkspace` dispatches (double-run guard #1: a second tick can no longer see the card as
+ * due), and `inFlight` blocks re-entry against a still-running teardown from a previous tick.
+ * Iterates SEQUENTIALLY, never `Promise.all` — teardowns are disk- and subprocess-heavy and must
+ * not stampede. Dispatching non-forced is the whole CLEAN-07 safety contract: the existing
+ * dirty-worktree preflight still refuses, and a blocked run is terminal — the due date is already
+ * cleared, so there is no retry, no backoff, no silent forever-loop.
+ */
+async function runDueCleanups(): Promise<void> {
+  const now = Date.now();
+  for (const card of store.cardsDueForCleanup(now)) {
+    if (inFlight.has(card.id)) continue;
+    inFlight.add(card.id);
+    try {
+      await store.clearCleanupDue(card.id);
+      await cleanupWorkspace(card.id, { force: false });
+    } finally {
+      inFlight.delete(card.id);
+    }
+  }
+}
+
+/**
+ * Start the services-tier, self-rescheduling due-cleanup loop (`LIFE-03`). Mirrors
+ * `artifact-detect.ts#startArtifactDetectionLoop`'s tick/scheduleNext/unref shape exactly, but
+ * lives in `services/orchestration/` rather than `adapters/` because it calls `cleanupWorkspace` —
+ * an `adapters → services` import is a hard ESLint `boundaries/dependencies` error and a forbidden
+ * back-edge in `docs/ARCHITECTURE.md`'s Do-Not-Change Contract #12.
+ * @remarks The immediate `void tick()` below IS the boot sweep: any card whose `cleanupDueAt`
+ * elapsed while the process was stopped is picked up by this first tick, so no separate catch-up
+ * code path exists. A fixed-interval timer is deliberately avoided — an overlapping tick would be a
+ * double-teardown-dispatch risk this loop cannot tolerate the way the cheap-store-mutation-only
+ * marker/artifact loops can.
+ * @see docs/ARCHITECTURE.md#cleanup-lifecycle
+ */
+export function startCleanupScheduler(): void {
+  async function tick(): Promise<void> {
+    try {
+      await runDueCleanups();
+    } catch (err) {
+      console.error(
+        `[cleanup-scheduler] tick failed — continuing: ${(err as Error).message}`,
+      );
+    } finally {
+      scheduleNext();
+    }
+  }
+
+  function scheduleNext(): void {
+    const timer = setTimeout(() => void tick(), CLEANUP_TICK_MS);
+    timer.unref?.();
+  }
+
+  void tick();
+}
