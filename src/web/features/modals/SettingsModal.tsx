@@ -19,10 +19,12 @@ import {
   deletePlaybook,
   disableRemote,
   enableRemote,
+  getCleanupDelay,
   getLinearFilters,
   getLinearOptions,
   getPlaybooks,
   previewLinearFilters,
+  saveCleanupDelay,
   saveLinearFilters,
 } from "../../lib/api.js";
 import { Button } from "../../primitives/Button.js";
@@ -34,7 +36,7 @@ import { QrCode } from "../../primitives/QrCode.js";
 import { MultiSelect } from "./MultiSelect.js";
 import { PlaybookEditorModal } from "./PlaybookEditorModal.js";
 
-export type SettingsTab = "filters" | "playbooks" | "remote";
+export type SettingsTab = "filters" | "playbooks" | "remote" | "cleanup";
 
 interface SettingsTabButtonProps {
   label: string;
@@ -1077,6 +1079,169 @@ function RemoteTabSection({ tunnelState, remoteTab }: RemoteTabSectionProps) {
   );
 }
 
+interface CleanupTab {
+  draftDays: string;
+  setDraftDays: Dispatch<SetStateAction<string>>;
+  saving: boolean;
+  saveError: boolean;
+  loadError: boolean;
+  validationError: boolean;
+  handleSave: () => Promise<void>;
+}
+
+function useCleanupTab(modalRef: RefObject<ModalControl | null>): CleanupTab {
+  const [draftDays, setDraftDays] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const { cleanupDelayDays } = await getCleanupDelay();
+        if (!active) return;
+        setDraftDays(String(cleanupDelayDays));
+      } catch (err) {
+        console.error("getCleanupDelay failed", err);
+        if (!active) return;
+        setLoadError(true);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const trimmed = draftDays.trim();
+  const parsedDays = Number(trimmed);
+  const validationError =
+    trimmed === "" ||
+    !Number.isInteger(parsedDays) ||
+    parsedDays < 0 ||
+    parsedDays > 90;
+
+  async function handleSave() {
+    if (saving || validationError) return;
+    setSaving(true);
+    setSaveError(false);
+    try {
+      const result = await saveCleanupDelay(parsedDays);
+      if (result.ok) {
+        modalRef.current?.requestClose();
+        return;
+      }
+      setSaveError(true);
+    } catch (err) {
+      console.error("saveCleanupDelay failed", err);
+      setSaveError(true);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return {
+    draftDays,
+    setDraftDays,
+    saving,
+    saveError,
+    loadError,
+    validationError,
+    handleSave,
+  };
+}
+
+interface CleanupTabSectionProps {
+  cleanupTab: CleanupTab;
+}
+
+function CleanupTabSection({ cleanupTab }: CleanupTabSectionProps) {
+  const { draftDays, setDraftDays, saveError, loadError, validationError } =
+    cleanupTab;
+  const [focused, setFocused] = useState(false);
+
+  return (
+    <>
+      {loadError && (
+        <span
+          style={{
+            fontFamily: "var(--font-ui)",
+            fontSize: "var(--font-body)",
+            lineHeight: "var(--line-body)",
+            color: "var(--text-muted)",
+          }}
+        >
+          Couldn't load the cleanup delay — reopen settings to retry.
+        </span>
+      )}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "var(--space-sm)",
+          padding: "var(--space-lg) 0",
+        }}
+      >
+        <Field>Cleanup delay (days)</Field>
+        <input
+          type="number"
+          min={0}
+          max={90}
+          step={1}
+          value={draftDays}
+          onChange={(e) => setDraftDays(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          aria-label="Cleanup delay in days"
+          style={{
+            height: "32px",
+            width: "96px",
+            padding: "0 var(--space-sm)",
+            background: "var(--surface-card)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius)",
+            color: "var(--text)",
+            fontFamily: "var(--font-ui)",
+            fontSize: "var(--font-body)",
+            lineHeight: "var(--line-body)",
+            outline: "none",
+            boxShadow: focusRing(focused),
+          }}
+        />
+        <span
+          style={{
+            fontSize: "var(--font-label)",
+            lineHeight: "var(--line-label)",
+            color: "var(--text-muted)",
+          }}
+        >
+          0 = clean up immediately on Done, matching the pre-this-phase
+          behavior.
+        </span>
+        {validationError && (
+          <div
+            role="alert"
+            style={{
+              fontSize: "var(--font-label)",
+              fontWeight: "var(--weight-semibold)",
+              lineHeight: "var(--line-label)",
+              color: "var(--destructive)",
+            }}
+          >
+            Enter a whole number between 0 and 90.
+          </div>
+        )}
+        {saveError && (
+          <Notice
+            tone="destructive"
+            label="Couldn't save cleanup delay — try again."
+          />
+        )}
+      </div>
+    </>
+  );
+}
+
 interface SettingsModalProps {
   onClose: () => void;
   initialTab?: SettingsTab;
@@ -1095,6 +1260,7 @@ export function SettingsModal({
   const filters = useFiltersTab(modalRef);
   const playbooksTab = usePlaybooksTab(tab === "playbooks");
   const remoteTab = useRemoteTab();
+  const cleanupTab = useCleanupTab(modalRef);
 
   return (
     <Modal
@@ -1133,6 +1299,11 @@ export function SettingsModal({
             active={tab === "remote"}
             onClick={() => setTab("remote")}
           />
+          <SettingsTabButton
+            label="Cleanup"
+            active={tab === "cleanup"}
+            onClick={() => setTab("cleanup")}
+          />
         </div>
 
         {tab === "filters" && (
@@ -1151,6 +1322,10 @@ export function SettingsModal({
             tunnelState={tunnelState}
             remoteTab={remoteTab}
           />
+        )}
+
+        {tab === "cleanup" && (
+          <SettingsModal.CleanupTab cleanupTab={cleanupTab} />
         )}
 
         {playbooksTab.editorState && (
@@ -1202,6 +1377,23 @@ export function SettingsModal({
               {filters.saving ? "Saving filters…" : "Save Filters"}
             </Button>
           </div>
+        ) : tab === "cleanup" ? (
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              flex: "0 0 auto",
+            }}
+          >
+            <Button
+              variant="primary"
+              onClick={() => void cleanupTab.handleSave()}
+              disabled={cleanupTab.validationError}
+              loading={cleanupTab.saving}
+            >
+              {cleanupTab.saving ? "Saving…" : "Save"}
+            </Button>
+          </div>
         ) : null}
       </Modal.Actions>
     </Modal>
@@ -1211,3 +1403,4 @@ export function SettingsModal({
 SettingsModal.FiltersTab = FiltersTabSection;
 SettingsModal.PlaybooksTab = PlaybooksTabSection;
 SettingsModal.RemoteTab = RemoteTabSection;
+SettingsModal.CleanupTab = CleanupTabSection;

@@ -705,6 +705,41 @@ export async function saveLinearFilters(
 }
 
 /**
+ * Read the persisted cleanup delay: GET /api/config/cleanup-delay. Fired once on the Settings
+ * Cleanup tab's mount to seed the draft. Throws on any non-2xx, mirroring `getLinearFilters`.
+ */
+export async function getCleanupDelay(): Promise<{ cleanupDelayDays: number }> {
+  const res = await fetch("/api/config/cleanup-delay");
+  if (!res.ok) {
+    throw new Error(`getCleanupDelay failed: ${res.status} ${res.statusText}`);
+  }
+  return (await res.json()) as { cleanupDelayDays: number };
+}
+
+/**
+ * Persist the cleanup delay: PUT /api/config/cleanup-delay. Mirrors `saveLinearFilters`'
+ * 200/400/throw discrimination exactly so the Cleanup tab shows the inline validation error
+ * verbatim: 200 → { ok:true }; 400 → { ok:false, error } (parsed body); any other status throws.
+ */
+export async function saveCleanupDelay(
+  days: number,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const res = await fetch("/api/config/cleanup-delay", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ cleanupDelayDays: days }),
+  });
+  if (res.ok) {
+    return { ok: true };
+  }
+  if (res.status === 400) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    return { ok: false, error: body.error ?? "Couldn't save cleanup delay." };
+  }
+  throw new Error(`saveCleanupDelay failed: ${res.status} ${res.statusText}`);
+}
+
+/**
  * Read first-run status: GET /api/setup. Fired once on app mount to gate the setup screen vs the
  * board. Returns `needsKey` plus the live prerequisite checklist; the Linear key never crosses this
  * boundary. Throws on any non-2xx so the caller can fail-open to the board rather than trapping a
