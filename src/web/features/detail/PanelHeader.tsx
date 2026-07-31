@@ -71,7 +71,7 @@ export function PanelHeader({
   const c = card;
   const [syncPending, setSyncPending] = useState(false);
   const narrowViewport = useMediaQuery("(max-width: 520px)");
-  const narrowDocked = docked && narrowViewport;
+  const narrowPanel = (docked || takeover) && narrowViewport;
   return (
     <div
       style={{
@@ -127,15 +127,15 @@ export function PanelHeader({
             variant="secondary"
             aria-expanded={detailsExpanded}
             onClick={onToggleDetails}
-            aria-label={narrowDocked ? "Details" : undefined}
-            title={narrowDocked ? "Details" : undefined}
+            aria-label={narrowPanel ? "Details" : undefined}
+            title={narrowPanel ? "Details" : undefined}
           >
             {detailsExpanded ? (
               <ChevronDown size={14} strokeWidth={2} aria-hidden="true" />
             ) : (
               <ChevronRight size={14} strokeWidth={2} aria-hidden="true" />
             )}
-            {!narrowDocked && "Details"}
+            {!narrowPanel && "Details"}
           </Button>
         )}
 
