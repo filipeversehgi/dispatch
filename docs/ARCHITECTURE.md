@@ -517,8 +517,12 @@ dead-session-detects todo or done cards — todo is skipped outright at step 0, 
 spent, while done cards still GET the step-1 capture so the ATTN-02 unseen-activity stamp works in
 any column, but stay marker-ineligible and bail out of dead-session detection on capture failure (a
 deliberate cleanup kills the session moments before clearing `tmuxSession`, and the detector must
-not race that into a spurious session-lost). Reconcile mirrors the same column guard, protecting
-BOTH columns symmetrically even though a todo card cannot hold a live session post-load.
+not race that into a spurious session-lost). Reconcile mirrors this guard NARROWLY: it skips only
+the session-lost-marking/Restart-promotion branch for To Do and Done, protecting both columns
+symmetrically even though a todo card cannot hold a live session post-load. A Done card awaiting
+deferred cleanup (`LIFE-02`) now legitimately holds a live session for days, so it still has its
+ttyd adopted and its hook token re-registered on every restart — skipping those too would sweep a
+live terminal as an orphan on every boot.
 
 **Empty-map baseline recovery (`IN-02`).** Two in-memory maps are empty after any backend restart,
 and both recover by SEEDING on first observation rather than firing. `listSessions()` returns an

@@ -343,12 +343,13 @@ class BoardStore extends EventEmitter {
    * paths so a recovered board hydrates byte-for-byte identically to a healthy one: rebuild the
    * cards Map, rewrite any interrupted in-flight provisioning into a retryable startError, reset
    * the transient `terminalError`/`syncing`, and default syncedAt / workspaceFolders / lastUsed.
-   * `ttydPort` is preserved for any card outside the To Do / Done columns (ROBU-01) — a parked
-   * card structurally carries no live session, so clearing it there costs nothing, but an
-   * active-column card's port is the one thing boot-time reconcile needs to attempt re-adopting
-   * the still-running ttyd instead of reaping it; `reconcileSessions()` clears it back via
-   * `clearStaleTtydPort` for any candidate whose adoption attempt fails, so a genuinely dead port
-   * never lingers past the first reconcile pass.
+   * `ttydPort` is preserved for every card except To Do (ROBU-01, widened by `LIFE-03`) — a To Do
+   * card structurally carries no live session post-load, so clearing it there costs nothing, but a
+   * Done card can now legitimately hold one for the length of its deferred-cleanup window
+   * (`LIFE-02`), exactly like any other active-column card: its port is the one thing boot-time
+   * reconcile needs to attempt re-adopting the still-running ttyd instead of it being swept as an
+   * orphan. `reconcileSessions()` clears it back via `clearStaleTtydPort` for any candidate whose
+   * adoption attempt fails, so a genuinely dead port never lingers past the first reconcile pass.
    *
    * @remarks Also migrates any card stranded on the retired `in_planning` column (KICK-02): a
    * card carrying a live `tmuxSession` resolves to `in_progress` (the session keeps running — a
@@ -387,7 +388,7 @@ class BoardStore extends EventEmitter {
           };
           card.provisioningStep = null;
         }
-        if (card.column === "todo" || card.column === "done") {
+        if (card.column === "todo") {
           card.ttydPort = undefined;
         }
         card.terminalError = null;
