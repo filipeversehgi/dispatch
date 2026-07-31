@@ -116,9 +116,11 @@ export function PanelHeader({
 
       <div
         style={{
-          flex: "0 0 auto",
+          flex: "0 1 auto",
           display: "flex",
           alignItems: "center",
+          justifyContent: "flex-end",
+          flexWrap: "wrap",
           gap: "var(--space-sm)",
         }}
       >
