@@ -184,6 +184,35 @@ export function Column({
     setColumnWidth(column, next);
   }
 
+  const doneGroups =
+    column === "done"
+      ? {
+          awaiting: cards.filter(
+            (c) => c.tmuxSession != null || c.workspacePath != null,
+          ),
+          cleaned: cards.filter(
+            (c) => c.tmuxSession == null && c.workspacePath == null,
+          ),
+        }
+      : null;
+
+  function renderCard(card: CardModel) {
+    return (
+      <Card
+        key={card.id}
+        card={card}
+        selected={card.id === selectedCardId}
+        multiSelected={selectedIds?.has(card.id) ?? false}
+        members={groupMembersById?.get(card.id)}
+        onSelect={onSelectCard}
+        onStartRequest={onStartRequest}
+        onToggleSelect={onToggleSelect}
+        isCarousel={isCarousel}
+        onMoveTo={onMoveTo}
+      />
+    );
+  }
+
   const sizing =
     !isCarousel && persistedWidth != null
       ? {
@@ -354,23 +383,57 @@ export function Column({
             inboxCount={inboxCount}
             onOpenInbox={onOpenInbox}
           />
+        ) : doneGroups ? (
+          <>
+            {doneGroups.awaiting.map(renderCard)}
+            {doneGroups.awaiting.length > 0 &&
+              doneGroups.cleaned.length > 0 && <CleanedDivider />}
+            {doneGroups.cleaned.map(renderCard)}
+          </>
         ) : (
-          cards.map((card) => (
-            <Card
-              key={card.id}
-              card={card}
-              selected={card.id === selectedCardId}
-              multiSelected={selectedIds?.has(card.id) ?? false}
-              members={groupMembersById?.get(card.id)}
-              onSelect={onSelectCard}
-              onStartRequest={onStartRequest}
-              onToggleSelect={onToggleSelect}
-              isCarousel={isCarousel}
-              onMoveTo={onMoveTo}
-            />
-          ))
+          cards.map(renderCard)
         )}
       </div>
+    </div>
+  );
+}
+
+function CleanedDivider() {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "var(--space-sm)",
+        padding: "var(--space-xs) 0",
+      }}
+    >
+      <div
+        style={{
+          flex: "1 1 auto",
+          height: "1px",
+          background: "var(--border)",
+        }}
+      />
+      <span
+        style={{
+          fontSize: "var(--font-label)",
+          fontWeight: "var(--weight-semibold)",
+          lineHeight: "var(--line-label)",
+          color: "var(--text-muted)",
+          flex: "0 0 auto",
+          whiteSpace: "nowrap",
+        }}
+      >
+        Cleaned
+      </span>
+      <div
+        style={{
+          flex: "1 1 auto",
+          height: "1px",
+          background: "var(--border)",
+        }}
+      />
     </div>
   );
 }
