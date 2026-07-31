@@ -110,6 +110,7 @@ export function DetailPanel({
 
   function handleResizePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (e.button !== 0) return;
+    if (cleanupDragRef.current != null) return;
     e.stopPropagation();
     const node = asideRef.current;
     if (node == null) return;
