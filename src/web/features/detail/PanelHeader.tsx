@@ -175,18 +175,22 @@ export function PanelHeader({
           <Button
             variant="primary"
             onClick={() => moveCard(c.id, "todo").catch(console.error)}
+            aria-label={narrowPanel ? "Promote to To Do" : undefined}
+            title={narrowPanel ? "Promote to To Do" : undefined}
           >
             <ArrowUp size={12} strokeWidth={2} aria-hidden="true" />
-            Promote to To Do
+            {!narrowPanel && "Promote to To Do"}
           </Button>
         )}
         {c?.column === "todo" && isDemoteEligible(c) && (
           <Button
             variant="secondary"
             onClick={() => moveCard(c.id, "inbox").catch(console.error)}
+            aria-label={narrowPanel ? "Move to Inbox" : undefined}
+            title={narrowPanel ? "Move to Inbox" : undefined}
           >
             <ArrowDown size={12} strokeWidth={2} aria-hidden="true" />
-            Move to Inbox
+            {!narrowPanel && "Move to Inbox"}
           </Button>
         )}
         {c?.source === "local" && (
@@ -204,15 +208,35 @@ export function PanelHeader({
                 .catch(console.error)
                 .finally(() => setSyncPending(false));
             }}
+            aria-label={
+              narrowPanel
+                ? syncPending || c.syncing === true
+                  ? "Syncing…"
+                  : "Sync Linear"
+                : undefined
+            }
+            title={
+              narrowPanel
+                ? syncPending || c.syncing === true
+                  ? "Syncing…"
+                  : "Sync Linear"
+                : undefined
+            }
           >
             <Upload size={12} strokeWidth={2} aria-hidden="true" />
-            {syncPending || c.syncing === true ? "Syncing…" : "Sync Linear"}
+            {!narrowPanel &&
+              (syncPending || c.syncing === true ? "Syncing…" : "Sync Linear")}
           </Button>
         )}
         {docked && c?.column === "todo" && onStartRequest && (
-          <Button variant="primary" onClick={() => onStartRequest(c.id)}>
+          <Button
+            variant="primary"
+            onClick={() => onStartRequest(c.id)}
+            aria-label={narrowPanel ? "Start" : undefined}
+            title={narrowPanel ? "Start" : undefined}
+          >
             <Play size={12} strokeWidth={2} aria-hidden="true" />
-            Start
+            {!narrowPanel && "Start"}
           </Button>
         )}
 
