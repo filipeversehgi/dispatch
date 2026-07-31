@@ -269,6 +269,15 @@ export interface Card {
    * UNREDACTED like `hookRoutedAt`/`cleanupBlocked` (only `hookToken` is redacted).
    */
   cleanupAttempt?: number;
+  /**
+   * Epoch-ms deferred-teardown schedule (`LIFE-02`). Set by `moveCardManual` on a genuine Done
+   * arrival (`from !== "done"`) of a card that still holds a session or workspace; cleared on a
+   * manual move back out of Done, by `finishCleanup`, by `recordCleanupWarning`, and by the
+   * automatic scheduler before it dispatches a teardown. Absent on a card with no pending
+   * schedule (never scheduled, already cleaned, or already cleared before a dispatch).
+   * @see docs/ARCHITECTURE.md#cleanup-lifecycle
+   */
+  cleanupDueAt?: number;
   /** Optional extra direction text captured at Start; reused by Retry and the Phase-3 detail panel. */
   extraDirection?: string | null;
   /** Structured ttyd (terminal) failure surfaced in the detail panel; null/absent when the terminal is healthy. */
@@ -602,6 +611,9 @@ export const DEFAULT_FILTERS: SourceFilters = {
   currentCycle: false,
   includeActive: false,
 };
+
+/** Resolved deferred-cleanup delay (days) when `config.cleanupDelayDays` is absent (`LIFE-02`). */
+export const DEFAULT_CLEANUP_DELAY_DAYS = 7;
 
 /**
  * A filter dimension a source can constrain on. `cycle` is a boolean toggle (no option list); the

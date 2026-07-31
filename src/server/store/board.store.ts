@@ -16,6 +16,7 @@ import type {
   StartError,
   TerminalError,
 } from "../../shared/types.js";
+import { DEFAULT_CLEANUP_DELAY_DAYS } from "../../shared/types.js";
 import { type BoardDb, type BoardMeta, openBoardDb } from "./board-db.js";
 import {
   APPLY_MARKER_EXCLUDED_SOURCES,
@@ -27,6 +28,9 @@ import { isStartingCard, reconcile } from "./mapping.js";
 
 const BOARD_DIR = path.join(os.homedir(), ".dispatch");
 export const BOARD_PATH = path.join(BOARD_DIR, "board.json");
+
+/** Milliseconds in a day, for resolving `cleanupDelayMs` from a day count (`LIFE-02`). */
+const MS_PER_DAY = 86_400_000;
 
 /**
  * To Do ordering. Promotion recency is the PRIMARY tier BY DESIGN: any card carrying
@@ -95,6 +99,13 @@ class BoardStore extends EventEmitter {
    * NOT a card mutation, so it never goes through the enqueue queue.
    */
   private pollIntervalMs: number | null = null;
+  /**
+   * Deferred-cleanup delay (ms) `moveCardManual` stamps onto `cleanupDueAt` on a genuine Done
+   * arrival (`LIFE-02`). Boot-time static config today, initialised from the default; 81-03 wires
+   * a public setter (mirroring `setPollInterval`) that config load/save calls, so this stays a
+   * boot-only value until that plan lands.
+   */
+  private cleanupDelayMs = DEFAULT_CLEANUP_DELAY_DAYS * MS_PER_DAY;
   /**
    * Editor availability flags surfaced on every snapshot so the client can render VS Code / Cursor
    * buttons. Set once at boot from resolveEditors via setEditors — boot-time static config, NOT a
@@ -1167,6 +1178,12 @@ class BoardStore extends EventEmitter {
    * `isManualMoveAllowed(from, column)` is false — this is the TRUE authority for the allowlist,
    * consulted against the live Map inside the enqueue callback (WR-04 precedent), so it holds even
    * if a route-level check were ever removed. No-op if the id is unknown.
+   *
+   * Also the sole writer of the deferred-cleanup schedule (`LIFE-02`): a genuine Done arrival
+   * (`from !== "done"`) of a card still holding a session or workspace stamps `cleanupDueAt`;
+   * leaving Done clears it. The `from !== "done"` guard is load-bearing — `isManualMoveAllowed`
+   * permits a done→done no-op move, and without the guard a redundant/retried move-to-done would
+   * silently push the schedule out by a full delay.
    */
   moveCardManual(id: string, column: Column): Promise<void> {
     return this.enqueue(() => {
@@ -1176,6 +1193,16 @@ class BoardStore extends EventEmitter {
       if (!isManualMoveAllowed(from, column)) return [];
       c.column = column;
       this.mirrorMemberColumn(c, column);
+      if (
+        from !== "done" &&
+        column === "done" &&
+        (c.tmuxSession != null || c.workspacePath != null)
+      ) {
+        c.cleanupDueAt = Date.now() + this.cleanupDelayMs;
+      }
+      if (from === "done" && column !== "done") {
+        c.cleanupDueAt = undefined;
+      }
       if (from === "inbox" && column === "todo") {
         c.promotedAt = new Date().toISOString();
       }
@@ -1310,7 +1337,8 @@ class BoardStore extends EventEmitter {
    * `hookToken` is cleared AND unregistered with the session fields (clearHookToken). `prs` and
    * `previews`, plus their `prsUnknown`/`previewsUnknown` companions, are cleared alongside the
    * other session fields. Column untouched. No-op if the id is
-   * unknown. Bumps `cleanupAttempt` — this is one of the four terminal cleanup branches.
+   * unknown. Bumps `cleanupAttempt` — this is one of the four terminal cleanup branches. Clears
+   * `cleanupDueAt` (`LIFE-02`): the teardown already ran on this branch, so the schedule is spent.
    */
   recordCleanupWarning(id: string, warning: string): Promise<void> {
     return this.enqueue(() => {
@@ -1327,6 +1355,7 @@ class BoardStore extends EventEmitter {
       card.previews = undefined;
       card.previewsUnknown = undefined;
       card.cleanupAttempt = (card.cleanupAttempt ?? 0) + 1;
+      card.cleanupDueAt = undefined;
       return [
         this.event("cleanup", {
           cardId: id,
@@ -1348,7 +1377,9 @@ class BoardStore extends EventEmitter {
    * `sessionLost` false, `terminalError` null. KEEPS `branch` (branches always survive per lock),
    * `outputChangedAt`, and `lastMarker`. Bumps `cleanupAttempt` (deliberately NOT one of the fields
    * cleared here — it must survive as the counter's whole point) — this is one of the four terminal
-   * cleanup branches. No-op if the id is unknown.
+   * cleanup branches. Also clears `cleanupDueAt` (`LIFE-02`) — without this a cleaned card would
+   * keep rendering a countdown, breaking the "absence of the countdown IS the cleaned state"
+   * contract. No-op if the id is unknown.
    */
   finishCleanup(id: string): Promise<void> {
     return this.enqueue(() => {
@@ -1368,6 +1399,7 @@ class BoardStore extends EventEmitter {
       c.previews = undefined;
       c.previewsUnknown = undefined;
       c.cleanupAttempt = (c.cleanupAttempt ?? 0) + 1;
+      c.cleanupDueAt = undefined;
       return [
         this.event("cleanup", { cardId: id, fromCol: "done", toCol: "done" }),
       ];

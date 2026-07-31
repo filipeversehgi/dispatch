@@ -1256,10 +1256,12 @@ and is used ONLY by the post-install re-probe. The formerly built-but-unwired de
 ### Cleanup Lifecycle
 
 When a card reaches Done its isolated workspace (per-repo git worktrees + the ttyd/tmux session) is
-torn down. The teardown is an async saga composed from EXISTING adapters over server-derived paths; it
-is scoped to `services/orchestration/cleanup.ts` (`cleanupWorkspace`) with cross-module touchpoints in the
-store (`recordCleanupWarning`/`finishCleanup`), the `/cleanup` route, and the `.tsx` cards/modal that
-offer it. Its home is written once here.
+NOT torn down on arrival — arrival SCHEDULES teardown for a future time (`LIFE-02`), and the
+workspace, worktrees, and tmux/ttyd session stay alive and promptable until that time elapses. The
+teardown itself, once dispatched, is an async saga composed from EXISTING adapters over
+server-derived paths; it is scoped to `services/orchestration/cleanup.ts` (`cleanupWorkspace`) with
+cross-module touchpoints in the store (`recordCleanupWarning`/`finishCleanup`), the `/cleanup`
+route, and the `.tsx` cards/modal that offer it. Its home is written once here.
 
 **Done-card teardown saga, fire-and-forget and quiet (`LIFE-01`).** Cleanup runs fire-and-forget off
 the `/cleanup` route AFTER the optimistic Done move and NEVER blocks the board; the route returns an
@@ -1272,6 +1274,19 @@ confirm alone is not a gate): the card MUST be in Done (a stray POST must never 
 in-progress session) and NO start saga may be in flight — cleanup racing a (re)start would delete
 worktrees the saga is creating, so `/start` 409s a Done card and cleanup 409s a starting one. Done
 cards are parked with no Restart affordance; the cleanup offer owns workspace reclamation there.
+
+**Deferred teardown schedule (`LIFE-02`).** `moveCardManual` is the sole writer of
+`card.cleanupDueAt`: it stamps a future epoch-ms due time only on a genuine Done arrival
+(`from !== "done"`) of a card that still holds a session or workspace, so a redundant done→done
+move (a retried `POST /cards/:id/move`) can never extend an already-set schedule. Leaving Done
+clears the field, as do `finishCleanup` and `recordCleanupWarning` (both terminal outcomes of a
+teardown that already ran). `cleanupDueAt` is NEVER read from a request body — it is written only
+from a server clock inside a store mutator, matching `LIFE-01`'s own `T-08b-01` server-derived
+posture. The due countdown rendered on a card is derived at render time from this field with no
+client timer (`format-cleanup-countdown.ts` mirrors `format-age.ts`'s pure render-time-clock-read
+idiom). A card with an outstanding `cleanupBlocked` refusal keeps its `cleanupDueAt` unless an
+automatic run cleared it before dispatching — the two fields CAN coexist on the manual-cleanup
+path, and the blocked notice always takes precedence over the countdown when both are present.
 
 **Delete-before-kill teardown ordering (`NEW-14`).** The steps run in a LOCKED order, each idempotent
 and no-op tolerant so a re-run after a partial failure is safe:
