@@ -397,6 +397,15 @@ export interface BoardSnapshot {
   workspaceFolders?: string[];
   /** Folder used on the last successful start, preselected in the modal; null when none yet. */
   lastUsed?: string | null;
+  /**
+   * Counts of TOP-LEVEL Done cards (`groupId == null`, matching what `Column` renders), computed
+   * from the FULL in-memory set on every `snapshot()` call regardless of the Done window
+   * (`BOARD-08`) — so the column badge and the Phase 81 awaiting/cleaned split stay truthful even
+   * when `cards` carries only a page of Done. Absent only on a pre-this-plan reader that never
+   * calls the windowed chokepoint (none exist).
+   * @see docs/ARCHITECTURE.md#sse-transport
+   */
+  doneCounts?: { awaiting: number; cleaned: number; total: number };
 }
 
 /**

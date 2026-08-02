@@ -60,6 +60,42 @@ export function compareTodoOrder(a: Card, b: Card): number {
 }
 
 /**
+ * Is this Done card still awaiting its deferred cleanup? Byte-identical to the predicate
+ * `Column.tsx`'s client-side `doneGroups` split already applies — this is that same logic moved
+ * server-side (`BOARD-08`) so the wire window can partition awaiting-first before slicing.
+ */
+export function isAwaitingCleanup(card: Card): boolean {
+  return card.tmuxSession != null || card.workspacePath != null;
+}
+
+/**
+ * Done-column paging order (`BOARD-08`): awaiting-cleanup cards sort before cleaned ones, then
+ * newest-updated first, then `id` as a total-order tiebreak. The `id` tiebreak is load-bearing —
+ * it is what makes a larger `doneLimit` a strict superset of a smaller one, so growing the window
+ * (Plan 82-03's "Load more") can never skip or repeat a row the way raw offset pagination would
+ * (RESEARCH Pitfall 3), without needing cursor semantics at all.
+ */
+export function compareDoneOrder(a: Card, b: Card): number {
+  const aw = isAwaitingCleanup(a);
+  const bw = isAwaitingCleanup(b);
+  if (aw !== bw) return aw ? -1 : 1;
+  const byUpdated = b.updatedAt.localeCompare(a.updatedAt);
+  if (byUpdated !== 0) return byUpdated;
+  return a.id.localeCompare(b.id);
+}
+
+/**
+ * Strip a card's `hookToken` before it leaves the process — the SINGLE sanctioned place a card
+ * loses its secret (`T-82-02b`). Every new read path (windowed `snapshot()`, and any future one)
+ * must call this rather than duplicate the delete, so the redaction boundary can never drift.
+ */
+export function redactCard(card: Card): Card {
+  const wireCard = { ...card };
+  delete wireCard.hookToken;
+  return wireCard;
+}
+
+/**
  * Did a reconcile refresh actually change the card's synced content? reconcile() re-pushes
  * every existing To Do card into upserts as an in-place refresh on every poll (SYNC-02), so a
  * `sync_in` event must fire ONLY when one of the poller-owned fields genuinely differs — else the
@@ -236,6 +272,12 @@ class BoardStore extends EventEmitter {
    * board `change` frame fires unconditionally from the in-memory Map (source of truth), but each
    * `activity` frame fires ONLY after a durable insert (persist returned matching ids) — a persist
    * failure must not advertise an event GET /api/events will never return (Pitfall 5).
+   * @remarks `BOARD-08`: `change` is emitted with NO payload — deliberately, since Plan 82-02.
+   * Once different SSE connections legitimately want different `doneLimit` windows, a single
+   * pre-built snapshot can no longer serve them all; leaving one attached to the event would be a
+   * loaded gun; a broadcast listener could accidentally reuse it and silently prune every
+   * connection back to the default window (the "load-more amnesia" bug). Every listener must call
+   * `store.snapshot({ doneLimit })` itself, once per distinct window.
    * @see docs/ARCHITECTURE.md#single-writer-store
    */
   private enqueue(mutator: () => Omit<ActivityEvent, "id">[]): Promise<void> {
@@ -259,7 +301,7 @@ class BoardStore extends EventEmitter {
             err,
           );
         }
-        this.emit("change", this.snapshot());
+        this.emit("change");
         for (const ev of broadcast) this.emit("activity", ev);
       })
       .catch((err: unknown) => {
@@ -436,23 +478,55 @@ class BoardStore extends EventEmitter {
   }
 
   /**
-   * Build the canonical WIRE snapshot (SSE frames + REST reads). The To Do cards are sorted
-   * with compareTodoOrder on this read path; other columns carry no Phase-1 ordering decision
-   * (the frontend re-partitions by `column`, so cross-column concat order is irrelevant).
-   * SECURITY: this is the single outbound chokepoint — each card is copied and `hookToken`
-   * deleted, so the per-session hook-auth secret never rides an SSE frame or a REST response
-   * (only the persisted board.json carries it). Redact future secret-adjacent card fields here
-   * (hookRoutedAt was considered and deliberately rides the wire — a non-secret timestamp).
+   * Build the canonical WIRE snapshot (SSE frames + REST reads) — the single read-path chokepoint
+   * for ordering, redaction, AND windowing (`BOARD-08`). The To Do cards are sorted with
+   * compareTodoOrder on this read path; other columns carry no Phase-1 ordering decision (the
+   * frontend re-partitions by `column`, so cross-column concat order is irrelevant). A bare call
+   * (`opts` omitted) returns the FULL, un-windowed set — internal readers (e.g.
+   * `GET /workspace-folders`) keep working unchanged; only `opts.doneLimit` windows the Done
+   * column, and only the two wire endpoints (`GET /api/board`, `GET /api/stream`) opt in.
+   * `doneCounts` is computed from the FULL set on every call regardless of windowing, so the
+   * column badge and the Phase 81 awaiting/cleaned split stay truthful even when fewer Done cards
+   * ride the wire than exist. A Done GROUP MEMBER rides the wire whenever its parent does — it is
+   * dropped only when its parent is a top-level Done card sitting outside the page — so
+   * `membersOf()` never sees a half-populated group (RESEARCH Open Question 1).
+   * SECURITY: this is the single outbound chokepoint — each kept card is redacted via
+   * {@link redactCard}, so the per-session hook-auth secret never rides an SSE frame or a REST
+   * response (only the persisted board.json carries it). Redact future secret-adjacent card
+   * fields there (hookRoutedAt was considered and deliberately rides the wire — a non-secret
+   * timestamp).
+   * @see docs/ARCHITECTURE.md#sse-transport
    */
-  snapshot(): BoardSnapshot {
+  snapshot(opts?: { doneLimit?: number }): BoardSnapshot {
     const snap = this.persistSnapshot();
+    const doneTop = snap.cards.filter(
+      (c) => c.column === "done" && c.groupId == null,
+    );
+    const awaitingCount = doneTop.filter(isAwaitingCleanup).length;
+    const doneCounts = {
+      awaiting: awaitingCount,
+      cleaned: doneTop.length - awaitingCount,
+      total: doneTop.length,
+    };
+    let kept = snap.cards;
+    if (opts?.doneLimit != null) {
+      const outOfWindow = new Set(
+        [...doneTop]
+          .sort(compareDoneOrder)
+          .slice(opts.doneLimit)
+          .map((c) => c.id),
+      );
+      kept = snap.cards.filter(
+        (c) =>
+          c.column !== "done" ||
+          (c.groupId == null && !outOfWindow.has(c.id)) ||
+          (c.groupId != null && !outOfWindow.has(c.groupId)),
+      );
+    }
     return {
       ...snap,
-      cards: snap.cards.map((card) => {
-        const wireCard = { ...card };
-        delete wireCard.hookToken;
-        return wireCard;
-      }),
+      cards: kept.map(redactCard),
+      doneCounts,
     };
   }
 
