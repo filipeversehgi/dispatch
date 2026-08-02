@@ -9,31 +9,26 @@ import { cleanupWorkspace } from "./cleanup.js";
 const CLEANUP_TICK_MS = 60_000;
 
 /**
- * Card ids with an automatic teardown currently dispatched. Transient, in-process only — NOT a
- * store field, mirroring `board.store.ts`'s `inFlightStarts` — the second of `LIFE-03`'s two
- * double-run guards, alongside clearing `cleanupDueAt` before dispatch.
- */
-const inFlight = new Set<string>();
-
-/**
  * Tear down every past-due card once, non-forced. `store.clearCleanupDue` runs BEFORE
  * `cleanupWorkspace` dispatches (double-run guard #1: a second tick can no longer see the card as
- * due), and `inFlight` blocks re-entry against a still-running teardown from a previous tick.
- * Iterates SEQUENTIALLY, never `Promise.all` — teardowns are disk- and subprocess-heavy and must
- * not stampede. Dispatching non-forced is the whole CLEAN-07 safety contract: the existing
- * dirty-worktree preflight still refuses, and a blocked run is terminal — the due date is already
- * cleared, so there is no retry, no backoff, no silent forever-loop.
+ * due), and `store.isCleaningUp`/`beginCleanup`/`endCleanup` (the SAME shared in-flight guard the
+ * manual `/cleanup` route consults — WR-01) blocks re-entry against a still-running teardown from a
+ * previous tick OR a concurrent manual dispatch for the same card. Iterates SEQUENTIALLY, never
+ * `Promise.all` — teardowns are disk- and subprocess-heavy and must not stampede. Dispatching
+ * non-forced is the whole CLEAN-07 safety contract: the existing dirty-worktree preflight still
+ * refuses, and a blocked run is terminal — the due date is already cleared, so there is no retry, no
+ * backoff, no silent forever-loop.
  */
 async function runDueCleanups(): Promise<void> {
   const now = Date.now();
   for (const card of store.cardsDueForCleanup(now)) {
-    if (inFlight.has(card.id)) continue;
-    inFlight.add(card.id);
+    if (store.isCleaningUp(card.id)) continue;
+    store.beginCleanup(card.id);
     try {
       await store.clearCleanupDue(card.id);
       await cleanupWorkspace(card.id, { force: false });
     } finally {
-      inFlight.delete(card.id);
+      store.endCleanup(card.id);
     }
   }
 }

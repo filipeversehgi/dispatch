@@ -375,11 +375,20 @@ cardsRouter.post("/cards/:id/cleanup", (req, res) => {
     res.status(409).json({ error: "a start is in flight for this card" });
     return;
   }
+  if (store.isCleaningUp(id)) {
+    res
+      .status(409)
+      .json({ error: "cleanup is already in flight for this card" });
+    return;
+  }
 
   const force = (req.body as { force?: unknown } | undefined)?.force === true;
-  void cleanupWorkspace(id, { force }).catch((err) => {
-    console.error(`[cleanup] failed for card ${id}:`, (err as Error).message);
-  });
+  store.beginCleanup(id);
+  void cleanupWorkspace(id, { force })
+    .catch((err) => {
+      console.error(`[cleanup] failed for card ${id}:`, (err as Error).message);
+    })
+    .finally(() => store.endCleanup(id));
   res.status(202).json({ cleaning: true });
 });
 

@@ -159,6 +159,15 @@ class BoardStore extends EventEmitter {
    */
   private readonly inFlightSyncs = new Set<string>();
   /**
+   * Card ids with a `cleanupWorkspace` teardown currently in flight. Mirrors `inFlightStarts`
+   * EXACTLY (transient, in-memory, NOT persisted): a dead process starts with this set empty, and no
+   * restart leaves a stale entry behind. Unlike the former scheduler-private `inFlight` set this
+   * replaces, it is a SINGLE store-level guard shared by BOTH dispatchers — the manual `/cleanup`
+   * route and the automatic due-cleanup scheduler — so the two can never run `cleanupWorkspace`
+   * concurrently for the same card (`LIFE-01`/`LIFE-03`).
+   */
+  private readonly inFlightCleanups = new Set<string>();
+  /**
    * Bootstrap-injected releaser for cleared hook tokens. The boundaries DAG forbids
    * store → services, so bootstrap wires services/domain/hook-tokens.ts' unregister function in here
    * (composed with hook-events' activity-throttle reaper, which is why the card id rides along);
@@ -533,6 +542,30 @@ class BoardStore extends EventEmitter {
   /** Clear the in-flight marker when a start saga settles (success or failure). */
   endStart(id: string): void {
     this.inFlightStarts.delete(id);
+  }
+
+  /**
+   * Is a `cleanupWorkspace` teardown currently in flight for this card? Synchronous shared guard
+   * (mirrors `isStarting` exactly) consulted by BOTH the manual `/cleanup` route and the automatic
+   * due-cleanup scheduler, so the two can never dispatch concurrently against the same card's
+   * worktree-removal/`fs.rm` steps. Not queued/persisted.
+   */
+  isCleaningUp(id: string): boolean {
+    return this.inFlightCleanups.has(id);
+  }
+
+  /**
+   * Mark a cleanup teardown as in flight. MUST be called synchronously (no await between the
+   * `isCleaningUp` check and this) so a concurrent dispatcher can never see the card as cleanable
+   * before the marker is set — same discipline as `beginStart`.
+   */
+  beginCleanup(id: string): void {
+    this.inFlightCleanups.add(id);
+  }
+
+  /** Clear the in-flight marker when a cleanup dispatch settles (success, warning, or throw). */
+  endCleanup(id: string): void {
+    this.inFlightCleanups.delete(id);
   }
 
   /**
