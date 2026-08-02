@@ -13,6 +13,7 @@ import type {
   UpdateRunResult,
   UpdateStatus,
 } from "../../shared/types.js";
+import type { CardSearchResult } from "../../shared/search.js";
 
 /**
  * Optimistically move a card to a column: POST /api/cards/:id/move.
@@ -872,4 +873,45 @@ export async function runUpdate(): Promise<UpdateRunResult> {
     throw new Error(`runUpdate failed: ${res.status} ${res.statusText}`);
   }
   return (await res.json()) as UpdateRunResult;
+}
+
+/**
+ * Board-wide search across every card, including ones outside the client's loaded window
+ * (SCALE-03): GET /api/search?q=. Mirrors `generateGroupTitle`'s abort-carrying shape — the
+ * caller's `AbortController` cancels an in-flight request superseded by a newer keystroke. Throws
+ * on any non-2xx (mirrors the file's reject-on-non-2xx idiom); an abort rejects with `AbortError`,
+ * left for the caller's catch block to ignore.
+ */
+export async function searchCards(
+  q: string,
+  signal?: AbortSignal,
+): Promise<{ results: CardSearchResult[]; total: number }> {
+  const res = await fetch(`/api/search?q=${encodeURIComponent(q)}`, {
+    signal,
+  });
+  if (!res.ok) {
+    throw new Error(`searchCards failed: ${res.status} ${res.statusText}`);
+  }
+  return (await res.json()) as { results: CardSearchResult[]; total: number };
+}
+
+/**
+ * Fetch a single card by id: GET /api/cards/:id. Resolves `null` on a 400 (unknown id) so a card
+ * that has genuinely gone away reads distinctly from a network failure, which still throws — will
+ * upgrade a minimal `CardSearchResult` into the full `Card` for a search result outside the
+ * client's currently loaded window, wired in Plan 82-05 (this plan's App.tsx binding stays the
+ * SIMPLE one: an in-window result opens the panel unchanged, the out-of-window case is deliberately
+ * deferred rather than plumbed twice).
+ * @public unused until Plan 82-05 wires the out-of-window pinned-card resolution — exported now
+ * because it is part of this plan's written client contract.
+ */
+export async function getCard(id: string): Promise<Card | null> {
+  const res = await fetch(`/api/cards/${encodeURIComponent(id)}`);
+  if (res.status === 400) {
+    return null;
+  }
+  if (!res.ok) {
+    throw new Error(`getCard failed: ${res.status} ${res.statusText}`);
+  }
+  return (await res.json()) as Card;
 }

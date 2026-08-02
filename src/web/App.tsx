@@ -302,6 +302,8 @@ export function App() {
             doneTotal={board?.doneCounts?.total}
             doneLimit={doneLimit}
             onLoadMoreDone={() => setDoneLimit((n) => n + DONE_PAGE_SIZE)}
+            onSelectSearchResult={(result) => setSelectedCardId(result.id)}
+            overlayAboveContent={overlayAboveContent}
           />
         )
       }

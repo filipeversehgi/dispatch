@@ -14,9 +14,11 @@ import type {
   Card as CardModel,
   Column as ColumnId,
 } from "../../../shared/types.js";
+import type { CardSearchResult } from "../../../shared/search.js";
 import { blocksAgentDoneManualEntry } from "../../../shared/column-transitions.js";
 import { Column } from "./Column.js";
 import { CardView } from "./CardView.js";
+import { SearchBox } from "./SearchBox.js";
 import { StatusPillSwitcher } from "./StatusPillSwitcher.js";
 import { SelectionBar } from "./SelectionBar.js";
 import { membersOf } from "./group-members.js";
@@ -38,6 +40,8 @@ interface BoardProps {
   doneTotal?: number;
   doneLimit?: number;
   onLoadMoreDone?: () => void;
+  onSelectSearchResult?: (result: CardSearchResult) => void;
+  overlayAboveContent?: boolean;
 }
 
 function isColumn(id: unknown): id is ColumnId {
@@ -54,6 +58,8 @@ export function Board({
   doneTotal,
   doneLimit,
   onLoadMoreDone,
+  onSelectSearchResult,
+  overlayAboveContent,
 }: BoardProps) {
   const [cards, setCards] = useState<CardModel[]>(board?.cards ?? []);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -281,6 +287,21 @@ export function Board({
             flexDirection: "column",
           }}
         >
+          <div
+            style={{
+              flex: "0 0 auto",
+              display: "flex",
+              alignItems: "center",
+              padding: "var(--space-sm) var(--space-lg)",
+              borderBottom: "1px solid var(--border)",
+              background: "var(--bg)",
+            }}
+          >
+            <SearchBox
+              onSelectResult={(result) => onSelectSearchResult?.(result)}
+              overlayAboveContent={overlayAboveContent}
+            />
+          </div>
           {isCarousel && (
             <StatusPillSwitcher
               cards={cards}
