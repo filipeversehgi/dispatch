@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import type { CardSearchResult } from "../../../shared/search.js";
 import {
+  SEARCH_QUERY_MAX,
   SEARCH_QUERY_MIN,
   SEARCH_RESULT_LIMIT,
 } from "../../../shared/search.js";
@@ -215,6 +216,7 @@ export function SearchBox({
         aria-autocomplete="list"
         aria-activedescendant={activeId}
         placeholder="Search tickets… (⌘K)"
+        maxLength={SEARCH_QUERY_MAX}
         value={query}
         onChange={(event) => {
           setQuery(event.target.value);
