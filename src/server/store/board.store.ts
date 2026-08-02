@@ -597,7 +597,10 @@ class BoardStore extends EventEmitter {
    * each match down to the four-field `CardSearchResult` (never a `Card`/`Partial<Card>`) so no
    * other field — least of all `hookToken` — can ride the response by construction (`T-82-03`).
    * `total` is the FULL match count, not the capped one, so the UI's "Showing top N of total" row
-   * stays truthful.
+   * stays truthful. Excludes group members (`groupId != null`): every other rendering and mutation
+   * path treats a member as unselectable on its own (`Board.tsx`'s column filter,
+   * `groupedMemberError` at every mutating route), so search must not be the one path that lets a
+   * user open one directly.
    */
   searchCards(
     query: string,
@@ -606,8 +609,9 @@ class BoardStore extends EventEmitter {
     const q = query.toLowerCase();
     const matches = [...this.cards.values()].filter(
       (c) =>
-        c.identifier.toLowerCase().includes(q) ||
-        c.title.toLowerCase().includes(q),
+        c.groupId == null &&
+        (c.identifier.toLowerCase().includes(q) ||
+          c.title.toLowerCase().includes(q)),
     );
     return {
       results: matches.slice(0, limit).map((c) => ({
