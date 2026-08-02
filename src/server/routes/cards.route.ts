@@ -153,7 +153,7 @@ cardsRouter.post("/cards/:id/move", async (req, res) => {
   }
 
   await store.moveCardManual(id, column as Column);
-  res.status(200).json(store.snapshot());
+  res.status(204).end();
 });
 
 cardsRouter.post("/cards/:id/start", async (req, res) => {
