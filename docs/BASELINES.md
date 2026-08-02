@@ -150,6 +150,15 @@ fan-out latency that does not scale with client count in this range, confirming
 loop rather than per-client — the exact naive mistake this path would need fixing if present.
 There is no bottleneck here to optimize.
 
+**Amended by `## Board at scale` (Phase 82):** the "serialize once outside the client loop"
+optimization this section measured is no longer a single shared frame for every connection —
+`sse.route.ts`'s `broadcastChange` now builds one frame per DISTINCT `doneLimit` among connected
+clients (`BOARD-08`), so the single-window case (every client at the same `doneLimit`, the common
+case measured above) still pays exactly one serialize per broadcast, but N clients spread across M
+distinct windows now pay M serializes. `## Board at scale`'s own reconnect-latency measurement
+(median `0.53ms` for a full close+reopen+resync cycle) is the relevant re-measurement for this
+per-distinct-window cost in the common single-window case — it remains sub-perceptible.
+
 ## Board re-renders
 
 - **Date:** 2026-07-19
@@ -484,4 +493,55 @@ for `SyncStrip`'s own 1s-interval tick noise (see `scripts/perf-board.mjs`'s `me
 for why an idle-noise-subtraction design was tried and dropped — it could round a real mutation's
 cost down to 0, which is a worse measurement than the small, already-documented tick noise itself).
 
-**After:** pending — measured in Plan 82-05 at HEAD with the identical command.
+**After:** measured against SHA `02af014` (Plan 82-05, Task 1 — every wave of this phase landed),
+same command, same 500-Done-card sandbox shape:
+
+```
+run=1 initialBytes=16129 initialCards=50 sseFrameBytes=16374 loadCommits=7 commits=7
+run=2 initialBytes=16129 initialCards=50 sseFrameBytes=16374 loadCommits=8 commits=5
+run=3 initialBytes=16129 initialCards=50 sseFrameBytes=16374 loadCommits=8 commits=7
+
+PERF-BOARD mode=prod done=500 initialBytes=16129 initialCards=50 sseFrameBytes=16374 loadCommits=8 commits=7
+```
+
+`initialCards=50` (down from `500`) is the windowed wire contract itself — the client now asks for
+one `DONE_PAGE_SIZE` page rather than every Done card, and the Done column badge still shows the
+true total of 500 via `doneCounts` (BOARD-08).
+
+**Verdict:**
+
+- **`initialBytes`:** `124260` → `16129` — a **7.7x reduction (−87.0%)**, and `16129/124260 =
+13.0%` of the before value, comfortably under this plan's 25% bound. This is the direct
+  SCALE-01/SCALE-05 result: `/api/board`'s payload no longer scales with total card count, only
+  with the loaded window (`DONE_PAGE_SIZE=50` regardless of how many Done cards exist).
+- **`sseFrameBytes`:** `124268` → `16374` — a **7.6x reduction (−86.8%)**, `16374/124268 = 13.2%`
+  of the before value, also comfortably under the 25% bound. Every SSE broadcast now carries one
+  connection's windowed snapshot (`sse.route.ts`'s per-distinct-`doneLimit` build), not a full,
+  un-windowed `BoardSnapshot`.
+- **`commits` (React re-render cost of one card move) did NOT improve, and the raw number is
+  reported honestly rather than smoothed over:** before was `5, 5, 5` (median `5`, zero variance
+  across all 3 runs); after is `7, 5, 7` (median `7`). This is a real difference, not just report
+  formatting, and this phase's windowing work never targeted this metric — windowing shrinks wire
+  payload size, not the number of React commits one mutation causes. The most plausible cause is
+  the same `SyncStrip` 1s-interval-tick noise `docs/BASELINES.md`'s own `## Board re-renders`
+  baseline already documented (its "Spread note" recorded a `toggle=6`→`7`/`total=20`→`21` swing
+  from a tick landing inside a 350ms settle window) — here the `MUTATION_WAIT_MS` settle window is
+  1000ms, wide enough that 0, 1, or 2 of `SyncStrip`'s ticks can land inside it depending on timing
+  offset, each contributing one extra whole-tree commit. The BEFORE run's `5, 5, 5` with zero
+  variance was itself the lucky case (no tick landed in any of the 3 windows); the AFTER run's
+  `5, 7, 7` shows the noise landing on 2 of 3 runs instead. `scripts/perf-board.mjs`'s own
+  `measureCommits` JSDoc already documents this as a known, unadjusted-for source of ±noise on
+  both sides of any comparison — it is not evidence of a real regression in commit cost from this
+  phase's changes, but it is also not a win, and is reported here exactly as measured rather than
+  reframed as a pass.
+
+**Reconnect latency — RESEARCH Assumption A1, answered:** measured directly (not extrapolated from
+the `## SSE fan-out` fan-out baseline) via a standalone script performing the actual
+close+reopen+resync cycle `useBoardStream.ts`'s `doneLimit`-as-effect-dependency triggers on
+"Load more" — open one `/api/stream?doneLimit=50` connection, consume its resync frame, close it,
+then time from opening a fresh `/api/stream?doneLimit=100` connection to that connection's own
+resync frame arriving, against the same 500-Done-card isolated sandbox. 5 runs:
+`2.86ms, 0.81ms, 0.51ms, 0.53ms, 0.41ms` — **median `0.53ms`**. This CONFIRMS Assumption A1: a full
+reconnect cycle (not just broadcast fan-out) is well under the `~2.8-3.3ms` SSE fan-out baseline
+already recorded above, and is imperceptible to a human clicking "Load more" — no alternative
+"expand" signal is needed.
