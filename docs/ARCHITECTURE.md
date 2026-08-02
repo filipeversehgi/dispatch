@@ -1236,6 +1236,24 @@ invalid value with 400 (`T-82-01`), while the SSE connect path falls back to `DO
 instead of rejecting the connection, since an `EventSource` retries a failed connect forever and a
 400 there would be an infinite reconnect loop rather than an actionable error.
 
+Plan 82-03 named and live-verified the one failure mode this design exists to rule out:
+**load-more amnesia**. A per-connection window that is read only at connect time and never
+re-applied inside the broadcast path makes "Load more" appear to work — the resync frame on
+connect correctly carries the wider page — and then silently prune the very next unrelated
+mutation anywhere on the board, because that broadcast reuses one shared, default-windowed frame
+for every client regardless of what each one already loaded. The structural defense is that
+`board.store.ts#enqueue` no longer pre-builds a snapshot to pass to its `"change"` emitter at all
+(`store.on("change", broadcastChange)` receives no argument) — there is no shared frame left for
+`broadcastChange` to accidentally reuse; `sse.route.ts`'s `byLimit` memo is the ONLY place a
+`BoardSnapshot` is built for the broadcast path, once per distinct `doneLimit` among connected
+clients. A live isolated-sandbox exercise (500 seeded Done cards, one connection grown to 150 via
+reconnect, a second held at 50, three unrelated mutations in between) confirmed the grown window
+survives every subsequent mutation and the two connections receive distinct per-window frames in
+the same broadcast; a negative control that temporarily reverted `broadcastChange` to build one
+shared `store.snapshot({ doneLimit: DONE_PAGE_SIZE })` frame for every client reproduced the exact
+prune (a 150-card window collapsing to 50) on the same exercise, confirming the exercise can
+actually detect the bug it rules out, not just fail to trigger it.
+
 **Client optimistic-move layer (`BOARD-02`).** `web/features/board/Board.tsx` layers a local `cards` state over
 the SSE snapshot and replaces it WHOLESALE whenever a new snapshot arrives — this is the client
 contract of the SSE transport, which is why it homes here rather than as a standalone frontend
