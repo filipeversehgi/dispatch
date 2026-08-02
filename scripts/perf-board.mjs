@@ -12,10 +12,14 @@
  *
  * SANDBOX SAFETY (non-negotiable, enforced by assertSandboxSafe before any fs/spawn call): this
  * harness seeds and boots a throwaway server. It never touches the real `~/.dispatch` directory
- * or `board.db`, never reads the real `~/.dispatch/config.json` (so it never needs, and never
- * sees, a Linear API key — cards are seeded directly via node:sqlite, not synced), and never binds
- * the port the user's real, live dispatch instance listens on. Every sandbox HOME lives under
- * `os.tmpdir()` with a `dispatch-perf-board-` basename, verified structurally, not by convention.
+ * or `board.db`, never reads the real `~/.dispatch/config.json` and never sees the real Linear API
+ * key (cards are seeded directly via node:sqlite, not synced) — the sandbox config carries only a
+ * HARDCODED, OBVIOUSLY-FAKE placeholder string in `sources.linear.apiKey`, needed only to clear the
+ * web app's client-side "needs a Linear key" first-run gate so the board actually renders for the
+ * commit-count leg; Linear rejects it with a clean 401 every poll, which the poller already handles
+ * as a routine sync failure (never a crash). This harness never binds the port the user's real,
+ * live dispatch instance listens on. Every sandbox HOME lives under `os.tmpdir()` with a
+ * `dispatch-perf-board-` basename, verified structurally, not by convention.
  *
  * `--dev` is intentionally UNSUPPORTED (a deliberate departure from perf-rerender.mjs's tsx+vite
  * fallback): vite.config.ts hardcodes its dev-mode `/api/`+`/sessions/` proxy target to the user's
@@ -34,12 +38,15 @@
  * Exit codes: 0 success. 1 setup/teardown/build error. 2 production hook never fired (rerun is
  * pointless — --dev is unsupported, so this is a hard failure, not a retry signal).
  */
-import { spawn } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
+
+const execFileP = promisify(execFile);
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DIST_ENTRY = join(REPO_ROOT, "dist", "server", "bootstrap", "index.js");
@@ -51,6 +58,12 @@ const SANDBOX_PREFIX = "dispatch-perf-board-";
 const POLL_INTERVAL_MS = 100;
 const READY_TIMEOUT_MS = 30_000;
 const KILL_TIMEOUT_MS = 5_000;
+const MUTATION_WAIT_MS = 1_000;
+const CARD_RENDER_TIMEOUT_MS = 10_000;
+
+const CHROME_CANDIDATES = [
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+];
 
 const DEFAULT_DONE_COUNT = 500;
 const DEFAULT_RUNS = 3;
@@ -126,8 +139,19 @@ function assertSandboxSafe(home) {
 }
 
 /**
- * Sandbox HOME with NO `sources` key at all — this harness seeds Done cards directly via
- * node:sqlite, so it never reads the real `~/.dispatch/config.json` and never needs a Linear key.
+ * Sandbox HOME whose config carries only this hardcoded, obviously-fake placeholder — never the
+ * real `~/.dispatch/config.json`'s key, never read from it, never derived from it. `GET /setup`
+ * gates the whole web app behind a first-run "needs a Linear key" screen whenever
+ * `linearApiKey` is absent (`setup.route.ts`), which would make the Done column (and therefore the
+ * commit-count leg) unreachable; a fake key clears that gate. Linear itself rejects it with a
+ * clean 401 every poll — `poller.ts` already treats that as a routine, non-fatal sync failure.
+ */
+const FAKE_LINEAR_API_KEY = "perf-board-harness-fake-key-never-real";
+
+/**
+ * Sandbox HOME seeded with `FAKE_LINEAR_API_KEY` (see above) — this harness seeds Done cards
+ * directly via node:sqlite, so it never reads the real `~/.dispatch/config.json` and never needs,
+ * touches, or transmits a real Linear key.
  */
 function makeSandboxHome(label) {
   const home = join(tmpdir(), `${SANDBOX_PREFIX}${label}-${process.pid}`);
@@ -142,6 +166,7 @@ function makeSandboxHome(label) {
         workspaceRoot: join(home, "workspaces"),
         statusChannel: "auto",
         updateCheck: false,
+        sources: { linear: { apiKey: FAKE_LINEAR_API_KEY } },
       },
       null,
       2,
@@ -183,6 +208,126 @@ function killAndWait(child) {
     });
     child.kill("SIGTERM");
   });
+}
+
+/** Locate a local Chrome binary, or throw with a clear message if none of the known paths exist. */
+function findChrome() {
+  const found = CHROME_CANDIDATES.find((p) => existsSync(p));
+  if (!found) {
+    throw new Error(
+      `No Chrome binary found at any known path: ${CHROME_CANDIDATES.join(", ")}`,
+    );
+  }
+  return found;
+}
+
+/** Minimal raw-CDP-over-WebSocket client (Node global WebSocket/fetch, zero new npm dependency). */
+class CDP {
+  constructor(ws) {
+    this.ws = ws;
+    this.nextId = 1;
+    this.pending = new Map();
+    ws.addEventListener("message", (event) => {
+      const msg = JSON.parse(event.data);
+      if (msg.id != null && this.pending.has(msg.id)) {
+        const { resolve, reject } = this.pending.get(msg.id);
+        this.pending.delete(msg.id);
+        if (msg.error) reject(new Error(msg.error.message));
+        else resolve(msg.result);
+      }
+    });
+  }
+
+  send(method, params = {}, sessionId) {
+    return new Promise((resolve, reject) => {
+      const id = this.nextId++;
+      const payload = { id, method, params };
+      if (sessionId) payload.sessionId = sessionId;
+      this.pending.set(id, { resolve, reject });
+      this.ws.send(JSON.stringify(payload));
+    });
+  }
+
+  close() {
+    this.ws.close();
+  }
+}
+
+async function connectCDP() {
+  const res = await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`);
+  const info = await res.json();
+  const ws = new WebSocket(info.webSocketDebuggerUrl);
+  await new Promise((resolve, reject) => {
+    ws.addEventListener("open", resolve, { once: true });
+    ws.addEventListener("error", reject, { once: true });
+  });
+  return new CDP(ws);
+}
+
+/** The DevTools-global-hook shim: every commit anywhere in the tree increments `commits`. */
+const HOOK_SHIM_SOURCE = `
+window.__DSP_RENDER_COUNTS__ = { commits: 0 };
+window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+  supportsFiber: true,
+  renderers: new Map(),
+  inject(renderer) {
+    this.renderers.set(this.renderers.size + 1, renderer);
+    return this.renderers.size;
+  },
+  onCommitFiberRoot() { window.__DSP_RENDER_COUNTS__.commits++; },
+  onCommitFiberUnmount() {},
+  onPostCommitFiberRoot() {},
+  checkDCE() {},
+  sub() { return function unsubscribe() {}; },
+  on() {},
+  off() {},
+  emit() {},
+};
+`;
+
+async function evalValue(cdp, sessionId, expression) {
+  const { result, exceptionDetails } = await cdp.send(
+    "Runtime.evaluate",
+    { expression, returnByValue: true, awaitPromise: false },
+    sessionId,
+  );
+  if (exceptionDetails) {
+    throw new Error(
+      `Runtime.evaluate failed: ${exceptionDetails.text} — ${expression}`,
+    );
+  }
+  return result.value;
+}
+
+function getCommits(cdp, sessionId) {
+  return evalValue(cdp, sessionId, "window.__DSP_RENDER_COUNTS__.commits");
+}
+
+/**
+ * Poll the Done column's count-badge text (no stable `data-card-id`/similar attribute exists on
+ * `Card`/`CardView` — grep-verified) until it reads `expectedCount`, proving every seeded card
+ * reached the wire AND rendered, not merely that the column mounted.
+ */
+async function waitForDoneBadge(cdp, sessionId, expectedCount, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  const expected = String(expectedCount);
+  while (Date.now() < deadline) {
+    const text = await evalValue(
+      cdp,
+      sessionId,
+      `(function(){
+        var col = document.querySelector('[data-column="done"]');
+        if (!col) return null;
+        var spans = col.querySelectorAll('span');
+        return spans.length > 1 ? spans[1].textContent : null;
+      })()`,
+    );
+    if (text === expected) return;
+    await sleep(POLL_INTERVAL_MS);
+  }
+  throw new Error(
+    `Done column badge never reached "${expected}" within ${timeoutMs}ms`,
+  );
 }
 
 /**
@@ -332,24 +477,177 @@ async function measureSseFrameBytes(port) {
   }
 }
 
-/** One full measured run: fresh sandbox, seed, boot, measure both byte legs, teardown. */
-async function runByteMetrics(doneCount, runIndex) {
+/**
+ * React commits caused by exactly one mutation, measured via the same raw-CDP DevTools-hook
+ * technique perf-rerender.mjs proved: snapshot the counter, drive one `perf-0` done<->todo round
+ * trip over HTTP, wait a fixed settle window, and report the raw delta.
+ * @remarks Deliberately NOT noise-adjusted against `SyncStrip`'s own 1s-interval tick
+ * (`docs/BASELINES.md`'s `## Board re-renders` "Spread note"): an empirical dry run of a
+ * scaled-subtraction design (2000ms idle sample scaled down to the 1000ms mutation window) proved
+ * unreliable — it occasionally rounded a real, non-zero mutation cost down to 0, which is a worse
+ * measurement than the small, already-documented tick noise it was trying to remove. `commits`
+ * is therefore the same raw, occasionally-±1-noisy number perf-rerender.mjs itself reports, with
+ * the same caveat: both sides of any future before/after comparison are subject to the identical
+ * tick noise, so it is not a bias in either direction.
+ * @returns `null` (after setting `process.exitCode = 2`) if the production hook never registered —
+ * the caller must stop the whole run, never retry with `--dev` (unsupported, see file header).
+ */
+async function measureCommits(port, cdp, sessionId, doneCount) {
+  await cdp.send(
+    "Page.navigate",
+    { url: `http://127.0.0.1:${port}/` },
+    sessionId,
+  );
+  await waitForDoneBadge(cdp, sessionId, doneCount, CARD_RENDER_TIMEOUT_MS);
+
+  const loadCommits = await getCommits(cdp, sessionId);
+  if (loadCommits === 0) {
+    console.error(
+      "PERF-BOARD diagnostic: commits stayed 0 after the board visibly rendered (Done column " +
+        "badge reached the seeded count) — production react-dom did not register with the " +
+        "DevTools hook shim. --dev is unsupported by this harness (see the file header), so this " +
+        "is a hard failure, not a retry signal.",
+    );
+    process.exitCode = 2;
+    return null;
+  }
+
+  const beforeMutation = await getCommits(cdp, sessionId);
+  await moveCard(port, "perf-0", MUTATION_TARGET_COLUMN);
+  await sleep(MUTATION_WAIT_MS);
+  const afterMutation = await getCommits(cdp, sessionId);
+  await moveCard(port, "perf-0", "done");
+
+  const commits = afterMutation - beforeMutation;
+  return { loadCommits, commits };
+}
+
+/** The MEDIAN of `values` (not the mean — this repo's 3-run-median convention, perf-sse.mjs's formula). */
+function median(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor((sorted.length - 1) * 0.5)];
+}
+
+/**
+ * One full measured run against a FRESH sandbox: seed, boot, measure both byte legs, then drive
+ * headless Chrome over raw CDP for the commit leg, tearing down the server, Chrome, and the
+ * sandbox home in every case (success, thrown error, or the exit-2 hook-never-fired path).
+ * @returns The five per-run metrics, or `null` if the hook-never-fired diagnostic fired (caller
+ * must stop the whole run immediately — `process.exitCode` is already set to 2).
+ */
+async function runMetrics(doneCount, runIndex) {
   const home = makeSandboxHome(`run${runIndex}`);
+  const scratchDir = join(
+    tmpdir(),
+    `${SANDBOX_PREFIX}chrome-${runIndex}-${process.pid}`,
+  );
+  mkdirSync(scratchDir, { recursive: true });
+
   let server = null;
+  let chromeChild = null;
+  let cdp = null;
+
   try {
     await seedDoneCards(home, doneCount);
     server = bootServer(home, false);
     await waitForReady(SANDBOX_PORT);
+
     const { initialBytes, initialCards } =
       await measureInitialBytes(SANDBOX_PORT);
     const sseFrameBytes = await measureSseFrameBytes(SANDBOX_PORT);
-    console.error(
-      `run=${runIndex} initialBytes=${initialBytes} initialCards=${initialCards} sseFrameBytes=${sseFrameBytes}`,
+
+    chromeChild = spawn(
+      findChrome(),
+      [
+        "--headless=new",
+        `--remote-debugging-port=${CDP_PORT}`,
+        `--user-data-dir=${scratchDir}`,
+        "--no-first-run",
+      ],
+      { stdio: ["ignore", "ignore", "ignore"] },
     );
-    return { initialBytes, initialCards, sseFrameBytes };
+
+    {
+      const deadline = Date.now() + READY_TIMEOUT_MS;
+      let up = false;
+      while (Date.now() < deadline) {
+        try {
+          const res = await fetch(`http://127.0.0.1:${CDP_PORT}/json/version`);
+          await res.body?.cancel();
+          if (res.status === 200) {
+            up = true;
+            break;
+          }
+        } catch {
+          // Chrome debugging port not up yet — keep polling
+        }
+        await sleep(POLL_INTERVAL_MS);
+      }
+      if (!up) {
+        throw new Error(`Chrome debugging port :${CDP_PORT} did not come up`);
+      }
+    }
+
+    cdp = await connectCDP();
+    const { targetId } = await cdp.send("Target.createTarget", {
+      url: "about:blank",
+    });
+    const { sessionId } = await cdp.send("Target.attachToTarget", {
+      targetId,
+      flatten: true,
+    });
+    await cdp.send("Page.enable", {}, sessionId);
+    await cdp.send("Runtime.enable", {}, sessionId);
+    await cdp.send(
+      "Page.addScriptToEvaluateOnNewDocument",
+      { source: HOOK_SHIM_SOURCE },
+      sessionId,
+    );
+
+    const commitResult = await measureCommits(
+      SANDBOX_PORT,
+      cdp,
+      sessionId,
+      doneCount,
+    );
+    if (commitResult === null) return null;
+
+    console.error(
+      `run=${runIndex} initialBytes=${initialBytes} initialCards=${initialCards} ` +
+        `sseFrameBytes=${sseFrameBytes} loadCommits=${commitResult.loadCommits} ` +
+        `commits=${commitResult.commits}`,
+    );
+    return {
+      initialBytes,
+      initialCards,
+      sseFrameBytes,
+      loadCommits: commitResult.loadCommits,
+      commits: commitResult.commits,
+    };
   } finally {
+    if (cdp) cdp.close();
+    await killAndWait(chromeChild);
     await killAndWait(server);
     rmSync(home, { recursive: true, force: true });
+    rmSync(scratchDir, { recursive: true, force: true });
+  }
+}
+
+/** Warn (never throw) if either port this harness owns is still held after every run tore down. */
+async function warnIfPortsHeld() {
+  try {
+    const args = [String(SANDBOX_PORT), String(CDP_PORT)].flatMap((p) => [
+      "-i",
+      `:${p}`,
+    ]);
+    const { stdout } = await execFileP("lsof", args).catch((err) => ({
+      stdout: err.stdout ?? "",
+    }));
+    if (stdout.trim() !== "") {
+      console.error(`WARNING: ports still held after teardown:\n${stdout}`);
+    }
+  } catch {
+    // lsof not available or no matches — nothing to report
   }
 }
 
@@ -364,9 +662,31 @@ async function main() {
   const doneCount = readDoneFlag(argv);
   const runs = readRunsFlag(argv);
 
-  for (let i = 1; i <= runs; i++) {
-    await runByteMetrics(doneCount, i);
+  const initialBytesArr = [];
+  const initialCardsArr = [];
+  const sseFrameBytesArr = [];
+  const loadCommitsArr = [];
+  const commitsArr = [];
+
+  try {
+    for (let i = 1; i <= runs; i++) {
+      const result = await runMetrics(doneCount, i);
+      if (result === null) return;
+      initialBytesArr.push(result.initialBytes);
+      initialCardsArr.push(result.initialCards);
+      sseFrameBytesArr.push(result.sseFrameBytes);
+      loadCommitsArr.push(result.loadCommits);
+      commitsArr.push(result.commits);
+    }
+  } finally {
+    await warnIfPortsHeld();
   }
+
+  console.error(
+    `PERF-BOARD mode=prod done=${doneCount} initialBytes=${median(initialBytesArr)} ` +
+      `initialCards=${median(initialCardsArr)} sseFrameBytes=${median(sseFrameBytesArr)} ` +
+      `loadCommits=${median(loadCommitsArr)} commits=${median(commitsArr)}`,
+  );
 }
 
 main().catch((err) => {
