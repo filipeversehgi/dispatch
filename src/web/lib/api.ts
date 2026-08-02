@@ -897,13 +897,8 @@ export async function searchCards(
 
 /**
  * Fetch a single card by id: GET /api/cards/:id. Resolves `null` on a 400 (unknown id) so a card
- * that has genuinely gone away reads distinctly from a network failure, which still throws — will
- * upgrade a minimal `CardSearchResult` into the full `Card` for a search result outside the
- * client's currently loaded window, wired in Plan 82-05 (this plan's App.tsx binding stays the
- * SIMPLE one: an in-window result opens the panel unchanged, the out-of-window case is deliberately
- * deferred rather than plumbed twice).
- * @public unused until Plan 82-05 wires the out-of-window pinned-card resolution — exported now
- * because it is part of this plan's written client contract.
+ * that has genuinely gone away reads distinctly from a network failure, which still throws. Used by
+ * `App.tsx#selectSearchResult` to upgrade an out-of-window `CardSearchResult` into a full `Card`.
  */
 export async function getCard(id: string): Promise<Card | null> {
   const res = await fetch(`/api/cards/${encodeURIComponent(id)}`);
