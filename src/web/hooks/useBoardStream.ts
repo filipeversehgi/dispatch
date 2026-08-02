@@ -31,12 +31,20 @@ const POLL_MS = 4_000;
 const POLL_MAX_MS = 30_000;
 
 /**
- * Own the single `/api/stream` EventSource. The optional `onActivity` callback is held in a ref
- * refreshed every render and read inside the existing `activity` listener, so a changing callback
- * never re-runs the connect effect (deps stay `[]`) and no second EventSource is ever opened — the
- * board `data:` snapshot frame and the named `activity` frame stay decoupled.
+ * Own the single `/api/stream` EventSource, windowed to `doneLimit` Done cards (`BOARD-08`). The
+ * optional `onActivity`/`onTunnelState` callbacks are held in refs refreshed every render and read
+ * inside the existing listeners, so a changing callback never re-runs the connect effect — that
+ * part of the file's "exactly one EventSource" guarantee is unchanged. `doneLimit` is the ONE
+ * deliberate exception: growing the window is a genuinely different subscription, not a callback
+ * identity change, so it is a real effect dependency and a wider value tears down and reopens the
+ * connection. The existing cleanup already disposes the EventSource, the pending reconnect timer,
+ * the watchdog, the idle timer, and the poll timer, so a `doneLimit` change tears down cleanly with
+ * no leaked connection — this is also what keeps `T-01-04c`'s StrictMode guarantee intact.
  */
-export function useBoardStream(options: BoardStreamOptions = {}): BoardStream {
+export function useBoardStream(
+  doneLimit: number,
+  options: BoardStreamOptions = {},
+): BoardStream {
   const [board, setBoard] = useState<BoardSnapshot | null>(null);
   const [connection, setConnection] = useState<ConnectionStatus>("connecting");
 
@@ -82,7 +90,7 @@ export function useBoardStream(options: BoardStreamOptions = {}): BoardStream {
     const fetchBoard = async (): Promise<boolean> => {
       const gen = ++boardGen;
       try {
-        const res = await fetch("/api/board");
+        const res = await fetch(`/api/board?doneLimit=${doneLimit}`);
         if (!res.ok) return false;
         const snap = (await res.json()) as BoardSnapshot;
         if (!disposed && gen === boardGen && !sseHealthy) {
@@ -125,7 +133,7 @@ export function useBoardStream(options: BoardStreamOptions = {}): BoardStream {
       if (disposed) return;
       lastEventAt = Date.now();
       sseHealthy = false;
-      const src = new EventSource("/api/stream");
+      const src = new EventSource(`/api/stream?doneLimit=${doneLimit}`);
       es = src;
 
       if (idleTimer != null) clearTimeout(idleTimer);
@@ -187,7 +195,7 @@ export function useBoardStream(options: BoardStreamOptions = {}): BoardStream {
       stopPolling();
       if (es != null) es.close();
     };
-  }, []);
+  }, [doneLimit]);
 
   return { board, connection };
 }

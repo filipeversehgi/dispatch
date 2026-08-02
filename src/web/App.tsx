@@ -30,6 +30,7 @@ import { UpdateBanner } from "./features/update/index.js";
 import { cleanupCard as cleanupCardApi, getSetup } from "./lib/api.js";
 import type { StartRequest } from "./lib/start-request.js";
 import type { PrerequisiteStatus, TunnelState } from "../shared/types.js";
+import { DONE_PAGE_SIZE } from "../shared/done-limit.js";
 
 function BootScreen({ connection }: { connection: ConnectionStatus }) {
   const statusText =
@@ -89,7 +90,8 @@ export function App() {
   const [tunnelState, setTunnelState] = useState<TunnelState>({
     status: "off",
   });
-  const { board, connection } = useBoardStream({
+  const [doneLimit, setDoneLimit] = useState(DONE_PAGE_SIZE);
+  const { board, connection } = useBoardStream(doneLimit, {
     onActivity: feed.append,
     onTunnelState: setTunnelState,
   });
@@ -297,6 +299,8 @@ export function App() {
               setSettingsOpen(true);
             }}
             onOpenInbox={() => setInboxOpen(true)}
+            doneTotal={board?.doneCounts?.total}
+            onLoadMoreDone={setDoneLimit}
           />
         )
       }

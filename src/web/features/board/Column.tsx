@@ -34,6 +34,7 @@ interface ColumnProps {
   resizeDisabled?: boolean;
   inboxCount?: number;
   onOpenInbox?: () => void;
+  doneTotal?: number;
 }
 
 export function Column({
@@ -54,6 +55,7 @@ export function Column({
   resizeDisabled,
   inboxCount,
   onOpenInbox,
+  doneTotal,
 }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: column });
   const highlight = isOver && !manualEntryBlocked;
@@ -325,7 +327,7 @@ export function Column({
             fontSize: "var(--font-label)",
           }}
         >
-          {cards.length}
+          {column === "done" && doneTotal != null ? doneTotal : cards.length}
         </span>
         {manualEntryBlocked && (
           <span

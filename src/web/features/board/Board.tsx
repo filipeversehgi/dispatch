@@ -35,6 +35,8 @@ interface BoardProps {
   onStartRequest?: (req: string | StartRequest) => void;
   onEditPlaybooks: () => void;
   onOpenInbox?: () => void;
+  doneTotal?: number;
+  onLoadMoreDone?: (doneLimit: number) => void;
 }
 
 function isColumn(id: unknown): id is ColumnId {
@@ -48,6 +50,7 @@ export function Board({
   onStartRequest,
   onEditPlaybooks,
   onOpenInbox,
+  doneTotal,
 }: BoardProps) {
   const [cards, setCards] = useState<CardModel[]>(board?.cards ?? []);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -321,6 +324,7 @@ export function Board({
                 resizeDisabled={activeCardId != null}
                 inboxCount={waitingInInbox}
                 onOpenInbox={onOpenInbox}
+                doneTotal={column === "done" ? doneTotal : undefined}
               />
             ))}
           </div>
