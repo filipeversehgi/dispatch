@@ -484,8 +484,9 @@ class BoardStore extends EventEmitter {
    * compareTodoOrder on this read path; other columns carry no Phase-1 ordering decision (the
    * frontend re-partitions by `column`, so cross-column concat order is irrelevant). A bare call
    * (`opts` omitted) returns the FULL, un-windowed set — internal readers (e.g.
-   * `GET /workspace-folders`) keep working unchanged; only `opts.doneLimit` windows the Done
-   * column, and only the two wire endpoints (`GET /api/board`, `GET /api/stream`) opt in.
+   * `adapters/terminal-proxy.ts`, `adapters/ttyd.ts`) keep working unchanged; only
+   * `opts.doneLimit` windows the Done column, and only the two wire endpoints
+   * (`GET /api/board`, `GET /api/stream`) opt in.
    * `doneCounts` is computed from the FULL set on every call regardless of windowing, so the
    * column badge and the Phase 81 awaiting/cleaned split stay truthful even when fewer Done cards
    * ride the wire than exist. A Done GROUP MEMBER rides the wire whenever its parent does — it is
