@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from "express";
 import { COLUMNS, type Card, type Column } from "../../shared/types.js";
 import { isDemoteEligible } from "../../shared/demote-eligibility.js";
-import { store } from "../store/board.store.js";
+import { redactCard, store } from "../store/board.store.js";
 import {
   blocksAgentDoneManualEntry,
   blocksTodoToInProgressManualMove,
@@ -92,6 +92,29 @@ function groupedMemberError(card: Card): string | null {
   if (card.groupId == null) return null;
   return `card is grouped under ${card.groupId} — act on the group card`;
 }
+
+/**
+ * `GET /api/cards/:id` — a single-card fetch for a search result outside the loaded window
+ * (SCALE-03). Answers an unknown id exactly the way `/move`, `/start`, `/resume`, `/terminal`,
+ * `/open-editor`, and `/cleanup` already do in THIS file — a plain `res.status(400)` — a
+ * DELIBERATE, VERIFIED choice that corrects RESEARCH and UI-SPEC, which each assumed the
+ * REST-conventional not-found status for a GET; `sync-linear`'s use of that different status is
+ * the sole documented deviation in this file and is not a precedent to extend here. Routes through
+ * {@link redactCard} — the store's single sanctioned redaction site — so a single-card fetch can
+ * never re-implement the `hookToken` strip via its own drift-prone copy, and can never widen what
+ * `store.snapshot()` already redacts (`T-82-03`).
+ */
+function getCardById(req: Request<{ id: string }>, res: Response): void {
+  const { id } = req.params;
+  const card = store.getCard(id);
+  if (!card) {
+    res.status(400).json({ error: `unknown card id: ${id}` });
+    return;
+  }
+  res.status(200).json(redactCard(card));
+}
+
+cardsRouter.get("/cards/:id", getCardById);
 
 cardsRouter.post("/cards/:id/move", async (req, res) => {
   const { id } = req.params;

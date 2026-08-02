@@ -17,6 +17,7 @@ import type {
   TerminalError,
 } from "../../shared/types.js";
 import { DEFAULT_CLEANUP_DELAY_DAYS } from "../../shared/types.js";
+import type { CardSearchResult } from "../../shared/search.js";
 import { type BoardDb, type BoardMeta, openBoardDb } from "./board-db.js";
 import {
   APPLY_MARKER_EXCLUDED_SOURCES,
@@ -585,6 +586,38 @@ class BoardStore extends EventEmitter {
    */
   getCard(id: string): Card | undefined {
     return this.cards.get(id);
+  }
+
+  /**
+   * Case-insensitive substring search over every card's identifier/title, the one query path
+   * `GET /api/search` uses to reach cards the client's windowed board view has never loaded
+   * (SCALE-03). Synchronous read over the live `Map` — no SQL and no index, because
+   * `board-db.ts` persists cards as opaque JSON blobs and the process already holds every card
+   * parsed, so at the phase's 500-card target this is a sub-millisecond two-field scan. Projects
+   * each match down to the four-field `CardSearchResult` (never a `Card`/`Partial<Card>`) so no
+   * other field — least of all `hookToken` — can ride the response by construction (`T-82-03`).
+   * `total` is the FULL match count, not the capped one, so the UI's "Showing top N of total" row
+   * stays truthful.
+   */
+  searchCards(
+    query: string,
+    limit: number,
+  ): { results: CardSearchResult[]; total: number } {
+    const q = query.toLowerCase();
+    const matches = [...this.cards.values()].filter(
+      (c) =>
+        c.identifier.toLowerCase().includes(q) ||
+        c.title.toLowerCase().includes(q),
+    );
+    return {
+      results: matches.slice(0, limit).map((c) => ({
+        id: c.id,
+        identifier: c.identifier,
+        title: c.title,
+        column: c.column,
+      })),
+      total: matches.length,
+    };
   }
 
   /**

@@ -5,6 +5,11 @@ import {
   type SourceFilters,
 } from "../../shared/types.js";
 import { DONE_PAGE_SIZE, parseDoneLimit } from "../../shared/done-limit.js";
+import {
+  SEARCH_QUERY_MAX,
+  SEARCH_QUERY_MIN,
+  SEARCH_RESULT_LIMIT,
+} from "../../shared/search.js";
 import { store } from "../store/board.store.js";
 import {
   getOrchestrationConfig,
@@ -46,6 +51,33 @@ function getBoard(req: Request, res: Response): void {
 }
 
 boardRouter.get("/board", getBoard);
+
+/**
+ * `GET /api/search?q=` answers SCALE-03: the board's windowed wire snapshot deliberately hides
+ * cards outside the loaded Done page, so this route scans the FULL live store instead of the
+ * client's partial view. `q` is trimmed and length-bounded to `[SEARCH_QUERY_MIN, SEARCH_QUERY_MAX]`
+ * BEFORE any scan (`T-82-02`) — a Denial-of-Service control on scan/response cost, NEVER an
+ * injection control: the query only ever reaches a plain `String.includes` argument, never SQL, a
+ * shell, or a template. No `await`, no try/catch — `store.searchCards` is a synchronous in-memory
+ * scan, not a network call.
+ */
+function getSearch(req: Request, res: Response): void {
+  const raw = req.query.q;
+  if (typeof raw !== "string") {
+    res.status(400).json({ error: "q is required" });
+    return;
+  }
+  const q = raw.trim();
+  if (q.length < SEARCH_QUERY_MIN || q.length > SEARCH_QUERY_MAX) {
+    res.status(400).json({
+      error: `q must be between ${SEARCH_QUERY_MIN} and ${SEARCH_QUERY_MAX} characters`,
+    });
+    return;
+  }
+  res.status(200).json(store.searchCards(q, SEARCH_RESULT_LIMIT));
+}
+
+boardRouter.get("/search", getSearch);
 
 boardRouter.get("/workspace-folders", (_req, res) => {
   const snap = store.snapshot();
