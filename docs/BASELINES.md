@@ -438,3 +438,50 @@ per-subprocess-call cost above) — **the git loops dominate, not fs.rm.** Resul
 next task: the fan-out is scoped to the three per-repo git loops (preflight `worktreeStatus`,
 teardown `worktreeRemove`, `worktreePrune`) and `fs.rm` stays a single call spanning the whole
 workspace folder, unchanged.
+
+## Board at scale
+
+- **Date:** 2026-08-03
+- **Git SHA measured:** `11a0c73`
+- **Machine:** Apple Silicon, local (Node v24.18.0, macOS 26.5.2, Chrome headless via `--headless=new`)
+- **Command:** `npm run build && node scripts/perf-board.mjs --done=500 --runs=3`
+- **Method:** an isolated sandbox HOME under `os.tmpdir()` (basename `dispatch-perf-board-*`,
+  structurally asserted before any fs/spawn call — never the real `~/.dispatch` or `board.db`,
+  never port 4700). 500 Done cards are seeded directly via `node:sqlite` `INSERT INTO cards`
+  against the sandbox's own `board.db` (never a real Linear sync — impractical for 500 distinct
+  tickets), using a TWO-BOOT sequence: one throwaway boot lets the store's own `board-db.ts` create
+  the real schema, then the harness inserts the rows directly and reboots. Every 25th seeded card
+  additionally carries `tmuxSession`/`workspacePath` (~20 cards) so both sides of the Phase 81
+  awaiting/cleaned split are exercised; the rest are cleaned. The sandbox config carries a
+  hardcoded, obviously-fake `sources.linear.apiKey` (never the real key, never read from the real
+  config) solely to clear the web app's client-side "needs a Linear key" first-run gate, so the
+  Done column actually renders for the commit-count leg — Linear cleanly rejects it with a 401
+  every poll, handled by the poller as a routine sync failure. Three numbers per run: `/api/board`'s
+  raw response bytes and card count (the REST fallback leg); one SSE frame's byte size following a
+  single `perf-0` `done -> todo -> done` mutation (the resync frame is discarded first, so only the
+  broadcast frame counts); and React commits caused by that same single mutation, measured via the
+  same raw-CDP `window.__REACT_DEVTOOLS_GLOBAL_HOOK__` shim technique `perf-rerender.mjs` already
+  proved (headless Chrome, zero new npm dependency), waiting for the Done column's count badge to
+  reach `500` before measuring. 3 runs, each against a completely fresh sandbox; every metric is
+  reported as the MEDIAN across runs (this repo's 3-run-median convention), not the mean.
+
+```
+run=1 initialBytes=124260 initialCards=500 sseFrameBytes=124268 loadCommits=7 commits=5
+run=2 initialBytes=124260 initialCards=500 sseFrameBytes=124268 loadCommits=7 commits=5
+run=3 initialBytes=124260 initialCards=500 sseFrameBytes=124268 loadCommits=8 commits=5
+
+PERF-BOARD mode=prod done=500 initialBytes=124260 initialCards=500 sseFrameBytes=124268 loadCommits=7 commits=5
+```
+
+**Before:** the block above — `PERF-BOARD mode=prod done=500 initialBytes=124260 initialCards=500
+sseFrameBytes=124268 loadCommits=7 commits=5`, measured against SHA `11a0c73` — the last commit
+before Plan 82-02 windows the wire. Both `initialBytes` and `sseFrameBytes` are ~124.3kB for a
+500-Done-card board: `/api/board` and every SSE broadcast currently ship a full, un-windowed
+`BoardSnapshot` regardless of how many Done cards the client has actually loaded, so this number
+scales linearly with total card count and is the direct before-number SCALE-01/SCALE-05 need.
+`commits=5` is the React re-render cost of a single card move against a 500-card board, unadjusted
+for `SyncStrip`'s own 1s-interval tick noise (see `scripts/perf-board.mjs`'s `measureCommits` JSDoc
+for why an idle-noise-subtraction design was tried and dropped — it could round a real mutation's
+cost down to 0, which is a worse measurement than the small, already-documented tick noise itself).
+
+**After:** pending — measured in Plan 82-05 at HEAD with the identical command.
