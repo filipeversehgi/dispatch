@@ -101,15 +101,20 @@ export function App() {
     status: "off",
   });
   const [doneLimit, setDoneLimit] = useState(DONE_PAGE_SIZE);
-  const { board, connection } = useBoardStream(doneLimit, {
-    onActivity: feed.append,
-    onTunnelState: setTunnelState,
-  });
-
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [pinnedCard, setPinnedCard] = useState<CardModel | null>(null);
   const [pinnedHydrating, setPinnedHydrating] = useState(false);
   const pinFetchGenRef = useRef(0);
+  const { board, connection } = useBoardStream(doneLimit, {
+    onActivity: feed.append,
+    onTunnelState: setTunnelState,
+    onBoardUpdate: (snapshot) => {
+      if (selectedCardId == null) return;
+      const live = snapshot.cards.find((card) => card.id === selectedCardId);
+      if (live != null) setPinnedCard(live);
+    },
+  });
+
   const [activityOpen, setActivityOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"board" | "orca">(() => {
     try {
@@ -137,6 +142,13 @@ export function App() {
     selectedCard != null && selectedCard.source === "group"
       ? membersOf(selectedCard, board?.cards ?? [])
       : undefined;
+
+  function selectCard(id: string | null) {
+    setSelectedCardId(id);
+    if (id == null) return;
+    const live = board?.cards.find((card) => card.id === id);
+    if (live != null) setPinnedCard(live);
+  }
 
   function selectSearchResult(result: CardSearchResult) {
     setSelectedCardId(result.id);
@@ -168,7 +180,7 @@ export function App() {
     if (id != null) setSelectedCardId(id);
   }, [viewMode, selectedCard, board, lastOpened]);
 
-  useTransitionNotifications(board, connection, setSelectedCardId);
+  useTransitionNotifications(board, connection, selectCard);
 
   const cardIdentifiers: Record<string, string> = {};
   for (const card of board?.cards ?? []) {
@@ -316,19 +328,19 @@ export function App() {
           <OrcaView
             board={board}
             selectedCardId={selectedCard ? selectedCardId : null}
-            onSelectCard={setSelectedCardId}
+            onSelectCard={selectCard}
           />
         ) : inboxOpen ? (
           <InboxView
             board={board}
             selectedCardId={selectedCard ? selectedCardId : null}
-            onSelectCard={setSelectedCardId}
+            onSelectCard={selectCard}
           />
         ) : (
           <Board
             board={board}
             selectedCardId={selectedCard ? selectedCardId : null}
-            onSelectCard={setSelectedCardId}
+            onSelectCard={selectCard}
             onStartRequest={requestStart}
             onEditPlaybooks={() => {
               setSettingsInitialTab("playbooks");
@@ -374,7 +386,7 @@ export function App() {
           document.getElementById("activity-toggle")?.focus();
         }}
         onSelectCard={(id) => {
-          setSelectedCardId(id);
+          selectCard(id);
           setActivityOpen(false);
         }}
       />

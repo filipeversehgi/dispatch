@@ -17,6 +17,13 @@ export interface BoardStreamOptions {
   onActivity?: (event: ActivityEvent) => void;
   /** Invoked with each parsed tunnel-status transition from the named `tunnel` frame. */
   onTunnelState?: (state: TunnelState) => void;
+  /**
+   * Invoked with every new snapshot, immediately before it becomes `board`. Lets a consumer
+   * synchronize state that must survive a card leaving `board.cards` (e.g. a pinned open-card
+   * cache) exactly when fresh data is available, without a second effect racing this hook's own
+   * `setBoard`.
+   */
+  onBoardUpdate?: (snapshot: BoardSnapshot) => void;
 }
 
 const HEARTBEAT_MS = 15_000;
@@ -32,14 +39,15 @@ const POLL_MAX_MS = 30_000;
 
 /**
  * Own the single `/api/stream` EventSource, windowed to `doneLimit` Done cards (`BOARD-08`). The
- * optional `onActivity`/`onTunnelState` callbacks are held in refs refreshed every render and read
- * inside the existing listeners, so a changing callback never re-runs the connect effect — that
- * part of the file's "exactly one EventSource" guarantee is unchanged. `doneLimit` is the ONE
- * deliberate exception: growing the window is a genuinely different subscription, not a callback
- * identity change, so it is a real effect dependency and a wider value tears down and reopens the
- * connection. The existing cleanup already disposes the EventSource, the pending reconnect timer,
- * the watchdog, the idle timer, and the poll timer, so a `doneLimit` change tears down cleanly with
- * no leaked connection — this is also what keeps `T-01-04c`'s StrictMode guarantee intact.
+ * optional `onActivity`/`onTunnelState`/`onBoardUpdate` callbacks are held in refs refreshed every
+ * render and read inside the existing listeners, so a changing callback never re-runs the connect
+ * effect — that part of the file's "exactly one EventSource" guarantee is unchanged. `doneLimit` is
+ * the ONE deliberate exception: growing the window is a genuinely different subscription, not a
+ * callback identity change, so it is a real effect dependency and a wider value tears down and
+ * reopens the connection. The existing cleanup already disposes the EventSource, the pending
+ * reconnect timer, the watchdog, the idle timer, and the poll timer, so a `doneLimit` change tears
+ * down cleanly with no leaked connection — this is also what keeps `T-01-04c`'s StrictMode guarantee
+ * intact.
  */
 export function useBoardStream(
   doneLimit: number,
@@ -56,6 +64,11 @@ export function useBoardStream(
   const onTunnelStateRef = useRef(options.onTunnelState);
   useEffect(() => {
     onTunnelStateRef.current = options.onTunnelState;
+  });
+
+  const onBoardUpdateRef = useRef(options.onBoardUpdate);
+  useEffect(() => {
+    onBoardUpdateRef.current = options.onBoardUpdate;
   });
 
   useEffect(() => {
@@ -94,6 +107,7 @@ export function useBoardStream(
         if (!res.ok) return false;
         const snap = (await res.json()) as BoardSnapshot;
         if (!disposed && gen === boardGen && !sseHealthy) {
+          onBoardUpdateRef.current?.(snap);
           setBoard(snap);
           setConnection("connected");
         }
@@ -155,7 +169,9 @@ export function useBoardStream(
           idleTimer = null;
         }
         stopPolling();
-        setBoard(JSON.parse(e.data) as BoardSnapshot);
+        const snap = JSON.parse(e.data) as BoardSnapshot;
+        onBoardUpdateRef.current?.(snap);
+        setBoard(snap);
         setConnection("connected");
       };
       src.addEventListener("ping", () => {

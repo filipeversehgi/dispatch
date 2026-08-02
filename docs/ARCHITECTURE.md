@@ -1268,7 +1268,12 @@ The board iterates `COLUMNS` in fixed order and MUST NOT re-sort To Do (it arriv
 "not present in `board.cards`" no longer means "does not exist" — it may simply sit outside the
 current `doneLimit` window; `doneCounts` (not `cards.length`) is the truthful count source for the
 Done column, and growing the window (Plan 82-03) is done by reconnect, never a client-side merge,
-so this wholesale-replace contract needs no change to stay correct under windowing.
+so this wholesale-replace contract needs no change to stay correct under windowing. The client-side
+half of this consequence — the open detail panel, not just `doneCounts` — is handled in
+`web/App.tsx`: every selection path (`selectCard`, `selectSearchResult`, the notification-click
+handler) pins the currently-live card into `pinnedCard`, and `useBoardStream`'s `onBoardUpdate`
+callback re-pins it on every subsequent snapshot for as long as it stays live, so a card that later
+pages out of the window keeps showing its last-known data instead of the panel silently closing.
 
 ### Startup Preflight
 
