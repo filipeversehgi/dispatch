@@ -589,6 +589,15 @@ class BoardStore extends EventEmitter {
   }
 
   /**
+   * Synchronous read of the registered workspace folders + last-used pick, for
+   * `GET /workspace-folders` (mirrors getCard — a cheap field read that has no need to build a
+   * full, redacted, potentially windowed `BoardSnapshot`).
+   */
+  getWorkspaceFolders(): { folders: string[]; lastUsed: string | null } {
+    return { folders: this.workspaceFolders, lastUsed: this.lastUsedFolder };
+  }
+
+  /**
    * Case-insensitive substring search over every card's identifier/title, the one query path
    * `GET /api/search` uses to reach cards the client's windowed board view has never loaded
    * (SCALE-03). Synchronous read over the live `Map` — no SQL and no index, because

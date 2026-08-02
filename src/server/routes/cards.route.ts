@@ -863,7 +863,8 @@ async function syncLinearHandler(
 
     const adopted = screenAdoptedFields(result, card);
     await store.adoptLinearIdentity(id, adopted);
-    res.status(200).json(store.snapshot().cards.find((c) => c.id === id));
+    const updated = store.getCard(id);
+    res.status(200).json(updated ? redactCard(updated) : undefined);
   } catch (err) {
     console.warn(
       `[sync-linear] failed for card ${id}:`,

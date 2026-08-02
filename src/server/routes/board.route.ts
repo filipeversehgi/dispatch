@@ -80,11 +80,8 @@ function getSearch(req: Request, res: Response): void {
 boardRouter.get("/search", getSearch);
 
 boardRouter.get("/workspace-folders", (_req, res) => {
-  const snap = store.snapshot();
-  res.status(200).json({
-    folders: snap.workspaceFolders ?? [],
-    lastUsed: snap.lastUsed ?? null,
-  });
+  const { folders, lastUsed } = store.getWorkspaceFolders();
+  res.status(200).json({ folders, lastUsed });
 });
 
 boardRouter.post("/workspace-folders", async (req, res) => {
