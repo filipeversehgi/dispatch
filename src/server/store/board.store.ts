@@ -86,8 +86,8 @@ export function compareDoneOrder(a: Card, b: Card): number {
 
 /**
  * Strip a card's `hookToken` before it leaves the process — the SINGLE sanctioned place a card
- * loses its secret (`T-82-02b`). Every new read path (windowed `snapshot()`, and any future one)
- * must call this rather than duplicate the delete, so the redaction boundary can never drift.
+ * loses its secret. Every new read path (windowed `snapshot()`, and any future one) must call
+ * this rather than duplicate the delete, so the redaction boundary can never drift.
  */
 export function redactCard(card: Card): Card {
   const wireCard = { ...card };

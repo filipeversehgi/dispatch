@@ -1,9 +1,10 @@
-import { Router } from "express";
+import { Router, type Request, type Response } from "express";
 import {
   DEFAULT_CLEANUP_DELAY_DAYS,
   DEFAULT_FILTERS,
   type SourceFilters,
 } from "../../shared/types.js";
+import { DONE_PAGE_SIZE, parseDoneLimit } from "../../shared/done-limit.js";
 import { store } from "../store/board.store.js";
 import {
   getOrchestrationConfig,
@@ -26,9 +27,25 @@ import {
 
 export const boardRouter = Router();
 
-boardRouter.get("/board", (_req, res) => {
-  res.status(200).json(store.snapshot());
-});
+/**
+ * `GET /api/board` carries the windowed Done page (`BOARD-08`): an absent `doneLimit` defaults to
+ * {@link DONE_PAGE_SIZE}, an invalid one 400s rather than clamping silently (`T-82-01`) — unlike
+ * `GET /api/stream`, a REST request has no persistent connection to keep alive, so refusing it
+ * outright is safe here in a way it is not for SSE.
+ */
+function getBoard(req: Request, res: Response): void {
+  const raw = req.query.doneLimit;
+  const doneLimit = raw === undefined ? DONE_PAGE_SIZE : parseDoneLimit(raw);
+  if (doneLimit == null) {
+    res.status(400).json({
+      error: "doneLimit must be a whole number between 1 and 5000",
+    });
+    return;
+  }
+  res.status(200).json(store.snapshot({ doneLimit }));
+}
+
+boardRouter.get("/board", getBoard);
 
 boardRouter.get("/workspace-folders", (_req, res) => {
   const snap = store.snapshot();
