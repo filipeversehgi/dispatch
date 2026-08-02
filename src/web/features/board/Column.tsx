@@ -12,6 +12,8 @@ import {
   setColumnWidth,
   useColumnWidths,
 } from "../../hooks/useColumnWidths.js";
+import { Button } from "../../primitives/Button.js";
+import { DONE_PAGE_SIZE } from "../../../shared/done-limit.js";
 
 const MIN_COL_WIDTH = 220;
 const MAX_COL_WIDTH = 480;
@@ -35,6 +37,8 @@ interface ColumnProps {
   inboxCount?: number;
   onOpenInbox?: () => void;
   doneTotal?: number;
+  doneLimit?: number;
+  onLoadMoreDone?: () => void;
 }
 
 export function Column({
@@ -56,6 +60,8 @@ export function Column({
   inboxCount,
   onOpenInbox,
   doneTotal,
+  doneLimit,
+  onLoadMoreDone,
 }: ColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: column });
   const highlight = isOver && !manualEntryBlocked;
@@ -197,6 +203,17 @@ export function Column({
           ),
         }
       : null;
+
+  const doneRemaining =
+    column === "done"
+      ? Math.max(0, (doneTotal ?? cards.length) - cards.length)
+      : 0;
+  const doneBatch = Math.min(DONE_PAGE_SIZE, doneRemaining);
+  const doneLoadInFlight =
+    column === "done" &&
+    doneLimit != null &&
+    doneLimit > cards.length &&
+    doneRemaining > 0;
 
   function renderCard(card: CardModel) {
     return (
@@ -391,6 +408,22 @@ export function Column({
             {doneGroups.awaiting.length > 0 &&
               doneGroups.cleaned.length > 0 && <CleanedDivider />}
             {doneGroups.cleaned.map(renderCard)}
+            {doneRemaining > 0 && (
+              <Button
+                variant="secondary"
+                disabled={doneLoadInFlight}
+                onClick={onLoadMoreDone}
+                style={{
+                  width: "100%",
+                  justifyContent: "center",
+                  marginTop: "var(--space-sm)",
+                }}
+              >
+                {doneLoadInFlight
+                  ? "Loading…"
+                  : `Load ${doneBatch} more (${doneRemaining} remaining)`}
+              </Button>
+            )}
           </>
         ) : (
           cards.map(renderCard)

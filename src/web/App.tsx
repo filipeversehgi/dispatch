@@ -300,7 +300,8 @@ export function App() {
             }}
             onOpenInbox={() => setInboxOpen(true)}
             doneTotal={board?.doneCounts?.total}
-            onLoadMoreDone={setDoneLimit}
+            doneLimit={doneLimit}
+            onLoadMoreDone={() => setDoneLimit((n) => n + DONE_PAGE_SIZE)}
           />
         )
       }
