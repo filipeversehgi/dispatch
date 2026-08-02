@@ -6,3 +6,4 @@ export { SINGLE_LINE_COPY } from "./EmptyState.js";
 export { membersOf } from "./group-members.js";
 export { inboxWaitingCount, isInboxWaiting } from "./inbox-count.js";
 export { MemberRow } from "./MemberRow.js";
+export { stubToCard } from "./search-stub.js";

@@ -23,6 +23,7 @@ import { TerminalRegion } from "./TerminalRegion.js";
 
 interface DetailPanelProps {
   card: CardModel | null;
+  hydrating?: boolean;
   editors?: { code: boolean; cursor: boolean };
   activityEvents?: ActivityEvent[];
   cardIdentifiers?: Record<string, string>;
@@ -35,6 +36,7 @@ interface DetailPanelProps {
 
 export function DetailPanel({
   card,
+  hydrating = false,
   editors,
   activityEvents,
   cardIdentifiers,
@@ -422,88 +424,107 @@ export function DetailPanel({
                 flexDirection: "column",
               }}
             >
-              {hasLiveSession ? (
-                detailsExpanded && (
-                  <div
-                    className="scroll-stable-y"
-                    style={{
-                      flex: "0 1 auto",
-                      maxHeight: "40%",
-                      overflowY: "auto",
-                      padding: "var(--space-xl)",
-                    }}
-                  >
-                    <ReferenceBlocks card={c} members={members} />
-                    {c && (
-                      <CardTimeline
-                        cardId={c.id}
-                        events={activityEvents ?? []}
-                        identifiers={cardIdentifiers}
-                      />
-                    )}
-                  </div>
-                )
-              ) : (
+              {hydrating ? (
                 <div
-                  className="scroll-stable-y"
                   style={{
-                    flex: c?.tmuxSession ? "0 1 auto" : "1 1 auto",
-                    overflowY: "auto",
                     padding: "var(--space-xl)",
+                    color: "var(--text-muted)",
+                    fontSize: "var(--font-body)",
                   }}
                 >
-                  <ReferenceBlocks card={c} members={members} />
-                  {c && (
-                    <CardTimeline
-                      cardId={c.id}
-                      events={activityEvents ?? []}
-                      identifiers={cardIdentifiers}
+                  Loading ticket…
+                </div>
+              ) : (
+                <>
+                  {hasLiveSession ? (
+                    detailsExpanded && (
+                      <div
+                        className="scroll-stable-y"
+                        style={{
+                          flex: "0 1 auto",
+                          maxHeight: "40%",
+                          overflowY: "auto",
+                          padding: "var(--space-xl)",
+                        }}
+                      >
+                        <ReferenceBlocks card={c} members={members} />
+                        {c && (
+                          <CardTimeline
+                            cardId={c.id}
+                            events={activityEvents ?? []}
+                            identifiers={cardIdentifiers}
+                          />
+                        )}
+                      </div>
+                    )
+                  ) : (
+                    <div
+                      className="scroll-stable-y"
+                      style={{
+                        flex: c?.tmuxSession ? "0 1 auto" : "1 1 auto",
+                        overflowY: "auto",
+                        padding: "var(--space-xl)",
+                      }}
+                    >
+                      <ReferenceBlocks card={c} members={members} />
+                      {c && (
+                        <CardTimeline
+                          cardId={c.id}
+                          events={activityEvents ?? []}
+                          identifiers={cardIdentifiers}
+                        />
+                      )}
+                    </div>
+                  )}
+
+                  {c != null &&
+                    (c.prsUnknown != null ||
+                      c.previewsUnknown != null ||
+                      (c.prs != null && c.prs.length > 0) ||
+                      (c.previews != null && c.previews.length > 0)) && (
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "var(--space-sm)",
+                          padding: "var(--space-xl)",
+                          borderBottom: "1px solid var(--border)",
+                        }}
+                      >
+                        {c.prs?.map((pr) => (
+                          <PrRow key={pr.url} pr={pr} />
+                        ))}
+                        {c.prsUnknown != null && (
+                          <UnknownProbeRow
+                            signal="pr"
+                            category={c.prsUnknown.category}
+                            partial={(c.prs?.length ?? 0) > 0}
+                          />
+                        )}
+                        {c.previews?.map((preview) => (
+                          <PreviewRow key={preview.port} preview={preview} />
+                        ))}
+                        {c.previewsUnknown != null && (
+                          <UnknownProbeRow
+                            signal="preview"
+                            category={c.previewsUnknown.category}
+                            partial={(c.previews?.length ?? 0) > 0}
+                          />
+                        )}
+                      </div>
+                    )}
+
+                  {c?.tmuxSession && !c.sessionLost && (
+                    <TerminalRegion card={c} />
+                  )}
+
+                  {c?.sessionLost === true && (
+                    <SessionLostSection
+                      card={c}
+                      onStartRequest={onStartRequest}
                     />
                   )}
-                </div>
-              )}
-
-              {c != null &&
-                (c.prsUnknown != null ||
-                  c.previewsUnknown != null ||
-                  (c.prs != null && c.prs.length > 0) ||
-                  (c.previews != null && c.previews.length > 0)) && (
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: "var(--space-sm)",
-                      padding: "var(--space-xl)",
-                      borderBottom: "1px solid var(--border)",
-                    }}
-                  >
-                    {c.prs?.map((pr) => (
-                      <PrRow key={pr.url} pr={pr} />
-                    ))}
-                    {c.prsUnknown != null && (
-                      <UnknownProbeRow
-                        signal="pr"
-                        category={c.prsUnknown.category}
-                        partial={(c.prs?.length ?? 0) > 0}
-                      />
-                    )}
-                    {c.previews?.map((preview) => (
-                      <PreviewRow key={preview.port} preview={preview} />
-                    ))}
-                    {c.previewsUnknown != null && (
-                      <UnknownProbeRow
-                        signal="preview"
-                        category={c.previewsUnknown.category}
-                        partial={(c.previews?.length ?? 0) > 0}
-                      />
-                    )}
-                  </div>
-                )}
-
-              {c?.tmuxSession && !c.sessionLost && <TerminalRegion card={c} />}
-
-              {c?.sessionLost === true && (
-                <SessionLostSection card={c} onStartRequest={onStartRequest} />
+                </>
               )}
             </div>
           </>

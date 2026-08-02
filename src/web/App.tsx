@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   useBoardStream,
   type ConnectionStatus,
@@ -13,7 +13,12 @@ import { useTransitionNotifications } from "./hooks/useTransitionNotifications.j
 import { AppShell } from "./AppShell.js";
 import { SyncStrip } from "./features/sync/index.js";
 import { Glyph } from "./primitives/Glyph.js";
-import { Board, inboxWaitingCount, membersOf } from "./features/board/index.js";
+import {
+  Board,
+  inboxWaitingCount,
+  membersOf,
+  stubToCard,
+} from "./features/board/index.js";
 import { InboxView } from "./features/inbox/index.js";
 import { OrcaView, mostRecentCardId } from "./features/orca/index.js";
 import { DetailPanel } from "./features/detail/index.js";
@@ -27,9 +32,14 @@ import {
 } from "./features/modals/index.js";
 import { FirstRunSetup } from "./features/setup/index.js";
 import { UpdateBanner } from "./features/update/index.js";
-import { cleanupCard as cleanupCardApi, getSetup } from "./lib/api.js";
+import { cleanupCard as cleanupCardApi, getCard, getSetup } from "./lib/api.js";
 import type { StartRequest } from "./lib/start-request.js";
-import type { PrerequisiteStatus, TunnelState } from "../shared/types.js";
+import type {
+  Card as CardModel,
+  PrerequisiteStatus,
+  TunnelState,
+} from "../shared/types.js";
+import type { CardSearchResult } from "../shared/search.js";
 import { DONE_PAGE_SIZE } from "../shared/done-limit.js";
 
 function BootScreen({ connection }: { connection: ConnectionStatus }) {
@@ -97,6 +107,9 @@ export function App() {
   });
 
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  const [pinnedCard, setPinnedCard] = useState<CardModel | null>(null);
+  const [pinnedHydrating, setPinnedHydrating] = useState(false);
+  const pinFetchGenRef = useRef(0);
   const [activityOpen, setActivityOpen] = useState(false);
   const [viewMode, setViewMode] = useState<"board" | "orca">(() => {
     try {
@@ -118,11 +131,34 @@ export function App() {
   const activityUnseen = isUnseen(newestTs, lastOpened["__feed__"]);
 
   const selectedCard =
-    board?.cards.find((card) => card.id === selectedCardId) ?? null;
+    board?.cards.find((card) => card.id === selectedCardId) ??
+    (pinnedCard?.id === selectedCardId ? pinnedCard : null);
   const selectedCardMembers =
     selectedCard != null && selectedCard.source === "group"
       ? membersOf(selectedCard, board?.cards ?? [])
       : undefined;
+
+  function selectSearchResult(result: CardSearchResult) {
+    setSelectedCardId(result.id);
+    if (board?.cards.some((card) => card.id === result.id) === true) {
+      setPinnedCard(null);
+      setPinnedHydrating(false);
+      return;
+    }
+    setPinnedCard(stubToCard(result));
+    setPinnedHydrating(true);
+    const gen = ++pinFetchGenRef.current;
+    getCard(result.id)
+      .then((card) => {
+        if (gen !== pinFetchGenRef.current) return;
+        if (card != null) setPinnedCard(card);
+        setPinnedHydrating(false);
+      })
+      .catch(() => {
+        if (gen !== pinFetchGenRef.current) return;
+        setPinnedHydrating(false);
+      });
+  }
 
   useEffect(() => {
     if (viewMode !== "orca" || selectedCard != null || board == null) {
@@ -302,7 +338,7 @@ export function App() {
             doneTotal={board?.doneCounts?.total}
             doneLimit={doneLimit}
             onLoadMoreDone={() => setDoneLimit((n) => n + DONE_PAGE_SIZE)}
-            onSelectSearchResult={(result) => setSelectedCardId(result.id)}
+            onSelectSearchResult={selectSearchResult}
             overlayAboveContent={overlayAboveContent}
           />
         )
@@ -310,11 +346,19 @@ export function App() {
       detail={
         <DetailPanel
           card={selectedCard}
+          hydrating={
+            pinnedHydrating &&
+            board?.cards.some((card) => card.id === selectedCardId) !== true
+          }
           editors={board?.editors}
           activityEvents={feed.events}
           cardIdentifiers={cardIdentifiers}
           members={selectedCardMembers}
-          onClose={() => setSelectedCardId(null)}
+          onClose={() => {
+            setSelectedCardId(null);
+            setPinnedCard(null);
+            setPinnedHydrating(false);
+          }}
           onStartRequest={requestStart}
           onCleanupRequest={setCleanupCardId}
           docked={viewMode === "orca"}
