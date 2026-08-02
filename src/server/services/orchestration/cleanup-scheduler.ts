@@ -16,19 +16,34 @@ const CLEANUP_TICK_MS = 60_000;
  * previous tick OR a concurrent manual dispatch for the same card. Iterates SEQUENTIALLY, never
  * `Promise.all` — teardowns are disk- and subprocess-heavy and must not stampede. Dispatching
  * non-forced is the whole CLEAN-07 safety contract: the existing dirty-worktree preflight still
- * refuses, and a blocked run is terminal — the due date is already cleared, so there is no retry, no
- * backoff, no silent forever-loop.
+ * refuses.
+ * @remarks Re-validates the card's live state with a FRESH `store.getCard` read immediately before
+ * the destructive `cleanupWorkspace` call (CR-01), rather than trusting the `cardsDueForCleanup`
+ * snapshot: sequential dispatch plus the `clearCleanupDue` queue hop means real wall-clock time
+ * elapses between the snapshot and this card's own turn, during which a legal Done → In Progress
+ * drag (or a column-preserving Resume) can make the card live again. A card that left Done is
+ * abandoned silently — `moveCardManual` already cleared its `cleanupDueAt` as part of that same
+ * move, so nothing needs restoring. A card that is STILL Done but has a start/resume saga in flight
+ * is also abandoned for this tick, but its schedule is restored via `restoreCleanupDue` so it is
+ * retried on the next tick instead of being stranded with no schedule and no automatic way back to
+ * one; a blocked (dirty-preflight) run, by contrast, remains terminal — no retry, no backoff.
  */
 async function runDueCleanups(): Promise<void> {
   const now = Date.now();
-  for (const card of store.cardsDueForCleanup(now)) {
-    if (store.isCleaningUp(card.id)) continue;
-    store.beginCleanup(card.id);
+  for (const snapshot of store.cardsDueForCleanup(now)) {
+    if (store.isCleaningUp(snapshot.id)) continue;
+    store.beginCleanup(snapshot.id);
     try {
-      await store.clearCleanupDue(card.id);
-      await cleanupWorkspace(card.id, { force: false });
+      await store.clearCleanupDue(snapshot.id);
+      const fresh = store.getCard(snapshot.id);
+      if (!fresh || fresh.column !== "done") continue;
+      if (store.isStarting(snapshot.id)) {
+        await store.restoreCleanupDue(snapshot.id, now);
+        continue;
+      }
+      await cleanupWorkspace(snapshot.id, { force: false });
     } finally {
-      store.endCleanup(card.id);
+      store.endCleanup(snapshot.id);
     }
   }
 }

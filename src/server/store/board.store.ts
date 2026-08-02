@@ -1241,11 +1241,13 @@ class BoardStore extends EventEmitter {
    * consulted against the live Map inside the enqueue callback (WR-04 precedent), so it holds even
    * if a route-level check were ever removed. No-op if the id is unknown.
    *
-   * Also the sole writer of the deferred-cleanup schedule (`LIFE-02`): a genuine Done arrival
-   * (`from !== "done"`) of a card still holding a session or workspace stamps `cleanupDueAt`;
-   * leaving Done clears it. The `from !== "done"` guard is load-bearing — `isManualMoveAllowed`
-   * permits a done→done no-op move, and without the guard a redundant/retried move-to-done would
-   * silently push the schedule out by a full delay.
+   * Also the sole writer of a FRESH deferred-cleanup schedule (`LIFE-02`): a genuine Done arrival
+   * (`from !== "done"`) of a card still holding a session or workspace stamps `cleanupDueAt` with a
+   * full `cleanupDelayMs`-length delay; leaving Done clears it. The `from !== "done"` guard is
+   * load-bearing — `isManualMoveAllowed` permits a done→done no-op move, and without the guard a
+   * redundant/retried move-to-done would silently push the schedule out by a full delay.
+   * `restoreCleanupDue` (`LIFE-03`) is the one other writer of the field, but it never mints a fresh
+   * delay — it only re-instates a schedule the scheduler's own abandon path cleared moments earlier.
    */
   moveCardManual(id: string, column: Column): Promise<void> {
     return this.enqueue(() => {
@@ -1511,6 +1513,27 @@ class BoardStore extends EventEmitter {
       const card = this.cards.get(id);
       if (card) {
         card.cleanupDueAt = undefined;
+      }
+      return [];
+    });
+  }
+
+  /**
+   * Restore a due-cleanup schedule that `runDueCleanups` (`LIFE-03`) just cleared but then chose
+   * NOT to act on, because a start/resume saga began between the snapshot and the fresh recheck and
+   * the card never actually left Done. Sets `cleanupDueAt` to `dueAt` (the scheduler passes
+   * `Date.now()`, so the card is due again on the very next tick, once the saga has had a chance to
+   * settle). `moveCardManual` remains the ONLY writer that mints a fresh `cleanupDelayMs`-length
+   * schedule on genuine Done arrival — this method never mints one, it only re-instates the exact
+   * schedule this same abandon path cleared moments earlier, so a card that is still Done never ends
+   * up with no schedule and no automatic way back to one. No-op if the id is unknown or the card has
+   * left Done in the meantime (a card outside Done carries no schedule by design, `LIFE-02`).
+   */
+  restoreCleanupDue(id: string, dueAt: number): Promise<void> {
+    return this.enqueue(() => {
+      const card = this.cards.get(id);
+      if (card && card.column === "done") {
+        card.cleanupDueAt = dueAt;
       }
       return [];
     });

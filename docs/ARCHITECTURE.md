@@ -1278,8 +1278,12 @@ derived from `card.*` + configured `repoPaths` — NOTHING from the request body
 the validated card id, `T-08b-01` EoP defense). Server-side guards are defense-in-depth (the client
 confirm alone is not a gate): the card MUST be in Done (a stray POST must never tear down a live
 in-progress session) and NO start saga may be in flight — cleanup racing a (re)start would delete
-worktrees the saga is creating, so `/start` 409s a Done card and cleanup 409s a starting one. Done
-cards are parked with no Restart affordance; the cleanup offer owns workspace reclamation there.
+worktrees the saga is creating, so `/start` 409s a Done card and cleanup 409s a starting one. The
+two callers also share ONE store-level in-flight guard (`isCleaningUp`/`beginCleanup`/`endCleanup`,
+mirroring `isStarting`) — the route 409s a card whose teardown is already dispatched, and the
+scheduler skips it — so a manual click can never race the automatic sweep's `worktreeRemove`/`fs.rm`
+steps for the same card. Done cards are parked with no Restart affordance; the cleanup offer owns
+workspace reclamation there.
 
 **Deferred teardown schedule (`LIFE-02`).** `moveCardManual` is the sole writer of
 `card.cleanupDueAt`: it stamps a future epoch-ms due time only on a genuine Done arrival
@@ -1298,12 +1302,21 @@ path, and the blocked notice always takes precedence over the countdown when bot
 `unref` loop (never `setInterval`) — `services/orchestration/cleanup-scheduler.ts#startCleanupScheduler`
 — starts immediately after `reconcileSessions()` at boot. Its first tick doubles as the boot sweep
 for any schedule that elapsed while the process was stopped, so no separate catch-up path exists.
-The loop never dispatches for a card outside Done or with a start saga in flight
-(`cardsDueForCleanup`'s two guards). Double-run is prevented in two layers: the due date is cleared
-BEFORE dispatch, and an in-process in-flight card-id set blocks re-entry against a still-running
-teardown. Every automatic run is `force: false`, so the existing dirty-worktree preflight still
-refuses it (CLEAN-07); a blocked automatic run is terminal — surfaced via `cleanupBlocked`, never
-retried or backed off.
+`cardsDueForCleanup` snapshots cards outside Done or with a start saga in flight OUT of the due list,
+but dispatch is sequential and each card's own turn is separated from the snapshot by real
+wall-clock time (a queue hop plus, for cards behind it, other cards' disk/subprocess-bound
+teardowns) — a legal Done → In Progress drag or a column-preserving Resume can make a snapshotted
+card live again before its turn arrives. The loop therefore re-validates with a FRESH store read
+immediately before the destructive `cleanupWorkspace` call: a card that left Done is abandoned
+silently (`moveCardManual` already cleared its schedule as part of that move), and a card that is
+still Done but has a start/resume saga in flight is abandoned for this tick with its schedule
+restored (`restoreCleanupDue`) so it is retried next tick rather than stranded with no schedule.
+Double-run is prevented in two layers: the due date is cleared BEFORE dispatch, and a store-level
+in-flight card-id set — shared with the manual `/cleanup` route (`LIFE-01`) — blocks re-entry
+against a still-running teardown, whether from a previous tick or a concurrent manual dispatch.
+Every automatic run is `force: false`, so the existing dirty-worktree preflight still refuses it
+(CLEAN-07); a blocked automatic run is terminal — surfaced via `cleanupBlocked`, never retried or
+backed off.
 
 **Cleanup delay setting (`LIFE-04`).** The delay is whole days in `~/.dispatch/config.json` under
 `cleanupDelayDays`, default 7, `0` meaning immediate cleanup on Done. Two different validation
