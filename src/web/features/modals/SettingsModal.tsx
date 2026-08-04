@@ -1215,8 +1215,7 @@ function CleanupTabSection({ cleanupTab }: CleanupTabSectionProps) {
             color: "var(--text-muted)",
           }}
         >
-          0 = clean up immediately on Done, matching the pre-this-phase
-          behavior.
+          0 = clean up immediately when a card reaches Done.
         </span>
         {validationError && (
           <div
