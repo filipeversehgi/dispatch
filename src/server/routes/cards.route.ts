@@ -817,8 +817,9 @@ function screenAdoptedFields(
  * is keyed by card id, never a global flag). The subprocess call carries NO abort-on-disconnect
  * wiring — the service's own no-signal decision — so the server owns the full timeout bound and a
  * client disconnect can never orphan a created-but-unadopted Linear issue mid-flight. The 200 body
- * is drawn from `snapshot()` — the store's single outbound redaction chokepoint — never the live
- * Map entry, so a started local card's `hookToken` can never ride the response (SECURITY).
+ * passes the card through `redactCard()` — the same redaction applied by `snapshot()`, reached
+ * directly rather than by building a whole board to find one card — never the live Map entry, so a
+ * started local card's `hookToken` can never ride the response (SECURITY).
  */
 async function syncLinearHandler(
   req: Request<{ id: string }>,
