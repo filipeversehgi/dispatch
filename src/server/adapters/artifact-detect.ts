@@ -1,5 +1,5 @@
 import net from "node:net";
-import type { PreviewInfo } from "../../shared/types.js";
+import type { Card, PreviewInfo } from "../../shared/types.js";
 import { listPrsForBranch, type PrProbeResult } from "./gh.js";
 import { panePidsBySession } from "./tmux.js";
 import { listeningPortsBySession, type DiscoveredPort } from "./dev-server.js";
@@ -69,6 +69,32 @@ const previewFailureCounts = new Map<string, number>();
 
 let artifactDetectInFlight: Promise<void> | null = null;
 
+/**
+ * Every live-session card ELIGIBLE for this tick's PR / dev-server probe fan-out — every column
+ * `cardsWithSession()` returns except Done.
+ *
+ * @remarks
+ * Phase 81 keeps a Done card's tmux session alive for days awaiting deferred cleanup, so
+ * `cardsWithSession()` alone is no longer naturally bounded by "how many agents are actively
+ * working" — it grows with the retained-Done population instead (SIG-02/03 x CLEAN-01 x
+ * SCALE-01: measured at 60 concurrent `gh pr list` subprocess spawns per ~10s tick for 60
+ * awaiting-cleanup cards, with zero cap). Done is a parked column: it has no Restart affordance,
+ * and per `docs/superpowers/specs/2026-07-03-agent-kanban-design.md` the card's work is finished
+ * there — nothing about a finished card's PR state or dev-server preview can change from further
+ * probing (a PR that merges after Done still doesn't gate anything for a card no further work
+ * touches), so continuing to spend a subprocess on it every tick buys nothing. Excluding it here
+ * is therefore the correct SIGNAL semantics, not just a scale workaround. `gh.ts`'s `-4/-3`
+ * session-lost handling in `reconcile.ts` already draws the identical Done-is-different line for
+ * a different purpose (`IN-03`), so this is a precedented distinction in this codebase, not a new
+ * one. Every OTHER live column (To Do never carries a `tmuxSession` so is never in the input set;
+ * in_progress / needs_input / agent_done) keeps probing exactly as before — SIG-02/03/04 and the
+ * unknown-vs-confirmed-negative distinction are unchanged for those columns.
+ * @see docs/ARCHITECTURE.md#dev-server-preview-detection
+ */
+function probedCards(): Card[] {
+  return store.cardsWithSession().filter((card) => card.column !== "done");
+}
+
 function connectOnce(
   host: string,
   port: number,
@@ -120,7 +146,8 @@ async function confirmReachable(
 
 /**
  * Fan out the combined per-card artifact detection (PR lookup + dev-server preview scan) across
- * every live-session card, driven by this module's own self-rescheduling ~10s loop.
+ * every PROBED live-session card (see {@link probedCards} — every live column except Done),
+ * driven by this module's own self-rescheduling ~10s loop.
  *
  * @remarks
  * The single-flight guard enforces nothing on the timer path and is kept for future callers.
@@ -170,14 +197,15 @@ async function detectCardArtifacts(backendPort: number): Promise<void> {
  * counter for every live-session card, latches `previewsUnknown` on the first failure, and forces
  * `previews` to `[]` once the ceiling is reached.
  *
- * An idle board short-circuits before any subprocess runs: with no live session there is nothing to
- * attribute a port to, yet the tick would still spawn `tmux list-panes -a` every 10s forever and —
- * with no tmux server at all — walk the entire tool-failure branch against zero cards. The three
- * bookkeeping maps are cleared rather than left alone, because the per-tick prune at the bottom is
- * the only thing that normally evicts a torn-down card's streak and this return skips it.
+ * An idle board short-circuits before any subprocess runs: with no PROBED live session (all-Done or
+ * genuinely empty) there is nothing to attribute a port to, yet the tick would still spawn
+ * `tmux list-panes -a` every 10s forever and — with no tmux server at all — walk the entire
+ * tool-failure branch against zero cards. The three bookkeeping maps are cleared rather than left
+ * alone, because the per-tick prune at the bottom is the only thing that normally evicts a
+ * torn-down card's streak and this return skips it.
  */
 async function runArtifactDetection(backendPort: number): Promise<void> {
-  const cards = store.cardsWithSession();
+  const cards = probedCards();
   if (cards.length === 0) {
     prFailureCounts.clear();
     prRetryNotBefore.clear();
@@ -301,7 +329,7 @@ async function runArtifactDetection(backendPort: number): Promise<void> {
     }),
   );
 
-  const liveIds = new Set(store.cardsWithSession().map((c) => c.id));
+  const liveIds = new Set(probedCards().map((c) => c.id));
   for (const id of prFailureCounts.keys()) {
     if (!liveIds.has(id)) prFailureCounts.delete(id);
   }

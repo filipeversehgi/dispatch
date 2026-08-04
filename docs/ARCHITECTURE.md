@@ -488,8 +488,10 @@ failure so a silent tooling failure is visible immediately; the underlying data 
 is left alone below the ceiling — the existing `null`-vs-`[]` staleness contract stays intact for a
 single blip — and is only forced to `[]` once three consecutive failures accrue, so a permanently
 dead probe cannot leave a stale PR or port sitting on the board forever. Both counter maps are
-pruned every tick to `store.cardsWithSession()`'s current ids so a torn-down card's streak can never
-resurrect against a reused id.
+pruned every tick to `probedCards()`'s current ids (`cardsWithSession()` minus Done — see
+[Dev-Server Preview Detection](#dev-server-preview-detection)) so a torn-down card's streak can
+never resurrect against a reused id, and a card that leaves Done for a live column starts fresh
+rather than carrying over a stale streak from before it was excluded.
 
 **The ceiling governs stale data only, never data fetched in the same tick.** A multi-repo card's PR
 probe fans out per repo, and the counter advances when ANY repo fails — so a single permanently
@@ -1727,6 +1729,32 @@ finding. Partial failure never backs off, so a workspace holding one permanently
 keeps polling its healthy siblings at full cadence. While a card is backed off its PR block is
 skipped entirely and `prsUnknown` is left standing — nothing was re-checked, so nothing may claim to
 have been.
+
+**The fan-out is scoped to PROBED cards, not every `cardsWithSession()` card — Done is excluded
+(milestone-integration-audit, closes a cross-phase blocker between `LIFE-02`'s deferred-cleanup
+retention and this loop).** `cardsWithSession()` alone stopped being naturally bounded by "how many
+agents are actively working" the moment Phase 81 started keeping a Done card's tmux session alive
+for days awaiting cleanup — measured at 60 concurrent `gh pr list` spawns in a single ~10s tick for
+60 awaiting-cleanup cards, unbounded and indefinite as the retained-Done population grows. The
+module-local `probedCards()` helper filters `cardsWithSession()` down to every column except Done
+before either the PR fan-out or the preview scan runs. This is SIGNAL semantics, not a scale
+shim: Done is a parked column with no Restart affordance, the card's work is finished there, and
+nothing about a finished card's PR state or dev-server preview can change from further probing — a
+PR merging after Done gates no further work for a card none is happening on. A Done card's
+`prs`/`previews` therefore FREEZE at whatever the last probe resolved before the card left an
+active column, rather than staying live for the length of the deferred-cleanup window; that is the
+deliberate tradeoff, not an oversight. Every other live column (`in_progress` / `needs_input` /
+`agent_done`; `todo` never carries a `tmuxSession` so was never in the input set) keeps probing
+exactly as before — `RESIL-02`'s failure-ceiling and backoff, and the `null`-vs-`[]`
+unknown-vs-confirmed-negative distinction above, are unchanged for those columns. The three
+per-card bookkeeping maps (`prFailureCounts`, `prRetryNotBefore`, `previewFailureCounts`) are
+pruned against this same `probedCards()` set at the end of each tick, so a card that moves to Done
+mid-tick has its streak evicted on the very next tick rather than lingering forever. Concurrency
+within `probedCards()` itself remains an unbounded `Promise.all` — acceptable at the scale of
+"cards with an actively live session" (a handful at a time in normal use), unlike the
+now-closed retained-Done-population case; a hard concurrency cap was deliberately left as a
+follow-up rather than bundled into this fix, since nothing in the audit measured it as a live
+problem once Done stopped inflating the set.
 
 **The single-flight guard is retained for future callers, and enforces nothing today.** The loop arms
 its next timer only in the awaited tick's `finally`, so a slow tick delays the following one instead
