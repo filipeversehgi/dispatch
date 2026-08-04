@@ -14,9 +14,11 @@ import { AppShell } from "./AppShell.js";
 import { SyncStrip } from "./features/sync/index.js";
 import { Glyph } from "./primitives/Glyph.js";
 import {
+  actionablePinnedCard,
   Board,
   inboxWaitingCount,
   membersOf,
+  type PinnedCard,
   stubToCard,
 } from "./features/board/index.js";
 import { InboxView } from "./features/inbox/index.js";
@@ -34,11 +36,7 @@ import { FirstRunSetup } from "./features/setup/index.js";
 import { UpdateBanner } from "./features/update/index.js";
 import { cleanupCard as cleanupCardApi, getCard, getSetup } from "./lib/api.js";
 import type { StartRequest } from "./lib/start-request.js";
-import type {
-  Card as CardModel,
-  PrerequisiteStatus,
-  TunnelState,
-} from "../shared/types.js";
+import type { PrerequisiteStatus, TunnelState } from "../shared/types.js";
 import type { CardSearchResult } from "../shared/search.js";
 import { DONE_PAGE_SIZE } from "../shared/done-limit.js";
 
@@ -102,7 +100,7 @@ export function App() {
   });
   const [doneLimit, setDoneLimit] = useState(DONE_PAGE_SIZE);
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
-  const [pinnedCard, setPinnedCard] = useState<CardModel | null>(null);
+  const [pinned, setPinned] = useState<PinnedCard | null>(null);
   const [pinnedHydrating, setPinnedHydrating] = useState(false);
   const pinFetchGenRef = useRef(0);
   const { board, connection } = useBoardStream(doneLimit, {
@@ -111,7 +109,7 @@ export function App() {
     onBoardUpdate: (snapshot) => {
       if (selectedCardId == null) return;
       const live = snapshot.cards.find((card) => card.id === selectedCardId);
-      if (live != null) setPinnedCard(live);
+      if (live != null) setPinned({ card: live, kind: "hydrated" });
     },
   });
 
@@ -137,7 +135,7 @@ export function App() {
 
   const selectedCard =
     board?.cards.find((card) => card.id === selectedCardId) ??
-    (pinnedCard?.id === selectedCardId ? pinnedCard : null);
+    (pinned?.card.id === selectedCardId ? pinned.card : null);
   const selectedCardMembers =
     selectedCard != null && selectedCard.source === "group"
       ? membersOf(selectedCard, board?.cards ?? [])
@@ -147,23 +145,23 @@ export function App() {
     setSelectedCardId(id);
     if (id == null) return;
     const live = board?.cards.find((card) => card.id === id);
-    if (live != null) setPinnedCard(live);
+    if (live != null) setPinned({ card: live, kind: "hydrated" });
   }
 
   function selectSearchResult(result: CardSearchResult) {
     setSelectedCardId(result.id);
     if (board?.cards.some((card) => card.id === result.id) === true) {
-      setPinnedCard(null);
+      setPinned(null);
       setPinnedHydrating(false);
       return;
     }
-    setPinnedCard(stubToCard(result));
+    setPinned({ card: stubToCard(result), kind: "stub" });
     setPinnedHydrating(true);
     const gen = ++pinFetchGenRef.current;
     getCard(result.id)
       .then((card) => {
         if (gen !== pinFetchGenRef.current) return;
-        if (card != null) setPinnedCard(card);
+        if (card != null) setPinned({ card, kind: "hydrated" });
         setPinnedHydrating(false);
       })
       .catch(() => {
@@ -189,7 +187,8 @@ export function App() {
 
   const [startRequest, setStartRequest] = useState<StartRequest | null>(null);
   const startCard =
-    board?.cards.find((card) => card.id === startRequest?.cardId) ?? null;
+    board?.cards.find((card) => card.id === startRequest?.cardId) ??
+    actionablePinnedCard(startRequest?.cardId, pinned);
 
   const requestStart = (req: string | StartRequest) => {
     const id = typeof req === "string" ? req : req.cardId;
@@ -203,7 +202,8 @@ export function App() {
   const [cleanupCardId, setCleanupCardId] = useState<string | null>(null);
   const [cleanupAttempted, setCleanupAttempted] = useState(false);
   const cleanupCard =
-    board?.cards.find((card) => card.id === cleanupCardId) ?? null;
+    board?.cards.find((card) => card.id === cleanupCardId) ??
+    actionablePinnedCard(cleanupCardId, pinned);
 
   useEffect(() => {
     setCleanupAttempted(false);
@@ -368,7 +368,7 @@ export function App() {
           members={selectedCardMembers}
           onClose={() => {
             setSelectedCardId(null);
-            setPinnedCard(null);
+            setPinned(null);
             setPinnedHydrating(false);
           }}
           onStartRequest={requestStart}

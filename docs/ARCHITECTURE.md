@@ -1273,9 +1273,31 @@ Done column, and growing the window (Plan 82-03) is done by reconnect, never a c
 so this wholesale-replace contract needs no change to stay correct under windowing. The client-side
 half of this consequence — the open detail panel, not just `doneCounts` — is handled in
 `web/App.tsx`: every selection path (`selectCard`, `selectSearchResult`, the notification-click
-handler) pins the currently-live card into `pinnedCard`, and `useBoardStream`'s `onBoardUpdate`
-callback re-pins it on every subsequent snapshot for as long as it stays live, so a card that later
-pages out of the window keeps showing its last-known data instead of the panel silently closing.
+handler) pins the currently-live card into `pinned` (`features/board/pinned-card.ts`'s
+`PinnedCard`), and `useBoardStream`'s `onBoardUpdate` callback re-pins it on every subsequent
+snapshot for as long as it stays live, so a card that later pages out of the window keeps showing
+its last-known data instead of the panel silently closing.
+
+`PinnedCard` carries a `kind: "stub" | "hydrated"` tag alongside the card (milestone-integration-
+audit, closing a cross-phase blocker between this pinning and Phase 82-05's cleanup affordance):
+`selectSearchResult` pins a `"stub"` (`stubToCard`'s filler-value placeholder for a card outside
+the window, paired with `hydrating: true`) immediately for instant open, then replaces it with a
+`"hydrated"` real card once `GET /api/cards/:id` resolves; `selectCard` and `onBoardUpdate` always
+pin `"hydrated"`, since both source from a live snapshot. DISPLAY (`selectedCard`,
+`selectedCardMembers`) reads through either kind unconditionally — a stub is exactly what
+`hydrating: true` exists to gate in the UI. ACTIONS do not: `startCard` and `cleanupCard` fall back
+to the pinned card via `features/board/pinned-card.ts`'s `actionablePinnedCard`, which returns it
+ONLY when `kind === "hydrated"`. Before this fix both derivations fell back to a bare
+`board?.cards.find(...) ?? null` with no pinned-card fallback at all, so "Clean up now" on an
+awaiting-cleanup card found only via search (outside the `doneLimit` window — plausible once the
+awaiting population exceeds 50, the default `DONE_PAGE_SIZE`) was a fully-enabled, silent dead
+click: the button rendered from `selectedCard` (which DID include the pinned card), but
+`cleanupCard` never found it, so `CleanupModal` never mounted. `requestStart`'s own validation gate
+(inside the `requestStart` closure, not the `startCard` render derivation) deliberately stays pure
+— `board?.cards.find(...)` only, no pinned fallback — because a To Do card is never windowed away
+(only Done is `doneLimit`-capped), so the gap this fix closes cannot occur there, and re-validating
+column/`groupId` from the live board rather than a moments-old hydrated snapshot is the safer
+freshness guarantee for the point where a start actually gets requested.
 
 ### Startup Preflight
 
@@ -2018,3 +2040,28 @@ separate Vite port to exclude at all. The bounded consequence is a `npm run dev`
 that the Vite dev port is surfaced as a preview on some OTHER card's board entry if a session's
 process tree happens to include it — accepted and recorded here rather than silently claimed
 excluded.
+
+### A search-opened group parent shows zero members until it re-enters the window
+
+`App.tsx`'s `selectedCardMembers` (`membersOf(selectedCard, board?.cards ?? [])`) scans ONLY
+`board.cards` — the currently loaded, windowed set — for cards carrying the opened card's id as
+`groupId`. The Phase 82 pin fix (`80d7664`, hardened by the milestone-integration-audit fixes
+alongside `PinnedCard`) lets a group PARENT opened via search while out-of-window hydrate and
+DISPLAY correctly, but its members are a separate concern: `GET /api/cards/:id` (`T-82-03`)
+returns exactly one redacted card, never its group's member rows, and `CardSearchResult`
+(`T-82-03`) is deliberately four fields with no `groupId`/`memberIds` — there is no endpoint today
+that can answer "who are this group's members" for a card outside the window. `membersOf`
+therefore silently returns zero members for such a card, rendering an N-member group session as
+if it were solo, until the parent's own Done-window slice (or a live board update) brings the
+members back into `board.cards`.
+
+This does NOT fall out of the `actionablePinnedCard`/`PinnedCard` stub-vs-hydrated fix: that
+distinction gates whether an ALREADY-KNOWN card is safe to act on, not whether its members are
+known at all — a hydrated group parent has genuinely real member ids, but no fetched member DATA
+to show. Closing this properly needs a new members-fetching capability (e.g. a
+`GET /api/cards/:id/members` route, or widening the single-card fetch to embed a redacted member
+list for a `source: "group"` card) — deliberately deferred rather than bolted on here, so as not
+to risk the two real (blocker-severity) fixes it rode in alongside. Degrades to
+under-informative, never incorrect: no member field is misattributed or leaked, the group parent
+itself still displays and is fully actionable, and the gap self-heals the moment the card's normal
+Done-window slice includes its members again.
