@@ -40,6 +40,7 @@ sections are scaffolded here and filled by the later Phase 10 migration plans.
 - [Do Not Change Contracts](#do-not-change-contracts)
 - [Security Threat Model](#security-threat-model)
 - [Known Residuals](#known-residuals)
+- [Verification Gates](#verification-gates)
 
 ## System Overview
 
@@ -2065,3 +2066,27 @@ to risk the two real (blocker-severity) fixes it rode in alongside. Degrades to
 under-informative, never incorrect: no member field is misattributed or leaked, the group parent
 itself still displays and is fully actionable, and the gap self-heals the moment the card's normal
 Done-window slice includes its members again.
+
+## Verification Gates
+
+Dev tooling, not test code (repo rule — no unit/e2e tests). Each gate answers one narrow,
+mechanically-checkable question; none of them read prose for truth.
+
+- **`npm run check`** — the standing CI-shaped gate: `format:check`, `lint`, `typecheck`,
+  `deadcode` (knip), `replay-gate`, and `doc-drift` (below), run in sequence.
+- **`node scripts/check-invariants.mjs`** — invariant-home audit: every ID in the frozen
+  baseline (`scripts/invariant-baseline.txt`) must have a durable home (a JSDoc block in `src/`
+  or anywhere in this doc). Deliberately NOT wired into `npm run check` — it gates the
+  Phase 10 knowledge-migration baseline specifically, run on demand.
+- **`node scripts/check-doc-drift.mjs`** (`npm run doc-drift`, wired into `npm run check`) —
+  catches two classes of drift between this doc and `src/`: (1) `@see docs/ARCHITECTURE.md#...`
+  pointers and backtick-quoted source-file citations in this doc that no longer resolve, and
+  (2) internal planning-process vocabulary (`this phase`, `Plan NN-NN`, `Phase <number>`,
+  `phase-smoke-tester`, `ROADMAP`, `.planning/`) leaking into shipped `src/` — the shape of bug
+  that once shipped a "pre-this-phase" reference in `SettingsModal.tsx`'s user-facing copy. See
+  the script's own header JSDoc for the full scope, its JSDoc-citation carve-out, and what it
+  deliberately does not attempt (behavioral claims — no grep proves a paragraph's claim about
+  what the code does is still true).
+- **`phase-smoke-tester`** — the only BEHAVIORAL verification this project runs: an agent derives
+  and executes smoke cases against the running app after each phase's implementation lands. This
+  is the one gate above that cannot be reduced to a grep.
