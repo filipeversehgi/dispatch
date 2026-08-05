@@ -17,7 +17,7 @@
  *
  * @remarks The recap overlay both false-flips and (next tick) wipes the dedup key if untreated —
  * the guard makes the whole tick a no-op, but only while the recap is still the newest content.
- * Stays in this module this phase (no extraction).
+ * Stays in this module (no extraction).
  * @see docs/ARCHITECTURE.md#watcher-discriminator
  */
 export function isRecapOverlay(pane: string): boolean {
@@ -98,7 +98,7 @@ export function stripVolatile(pane: string): string {
  * two are equivalent here, but keeping the strip preserves the existing spinner/`❯`/footer guards.
  *
  * @remarks The `⏺`-anchored view is the STRUCTURAL discriminator — TUI chrome never emits a `⏺`
- * block, so no chrome repaint can flip a card. Stays in this module this phase (no extraction).
+ * block, so no chrome repaint can flip a card. Stays in this module (no extraction).
  * @see docs/ARCHITECTURE.md#watcher-discriminator
  */
 export function agentOutputView(pane: string): string {

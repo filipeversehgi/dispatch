@@ -6,9 +6,9 @@ import type { Card } from "../../../shared/types.js";
  * budget also has to bound the otherwise-unbounded identifier-join fallback phrase, which no
  * generation-time clamp ever touches. Tuned against `CardView`'s 2-line/1-line-compact clamp and
  * the single-line ellipsis renders in `OrcaNavRow.tsx` and `PanelHeader.tsx` at a 390px viewport —
- * the phase-smoke-tester gate should visually confirm a 2-member and an 8-member group at that
- * width and adjust this constant if it looks visually broken (cut mid-identifier, or wrapping
- * past 2 lines on `CardView`).
+ * visual verification should confirm a 2-member and an 8-member group at that width and this
+ * constant should be adjusted if it looks visually broken (cut mid-identifier, or wrapping past 2
+ * lines on `CardView`).
  */
 const PHRASE_CHAR_BUDGET = 56;
 

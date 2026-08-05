@@ -96,7 +96,7 @@ export function httpForward(req: Request, res: Response, port: number): void {
 
 /**
  * Hand-rolled WS-upgrade forward — the zero-dependency way to proxy a WebSocket (no external
- * proxy dependency is in scope this phase). Writes `req.rawHeaders` verbatim (never the
+ * proxy dependency is used). Writes `req.rawHeaders` verbatim (never the
  * lowercased/deduped `req.headers`) and the already-buffered `head` bytes before piping, in that
  * order: dropping either produces a handshake that reports success (101) while truncating the
  * first frame or mangling a header ttyd's libwebsockets is strict about (T-72-03).
