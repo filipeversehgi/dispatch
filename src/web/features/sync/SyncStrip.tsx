@@ -118,7 +118,7 @@ interface SyncStripProps {
   onOpenInbox?: () => void;
   inboxCount?: number;
   inboxOpen?: boolean;
-  onOpenCreateTicket?: () => void;
+  onOpenCreateTicket: () => void;
   viewMode?: "board" | "orca";
   onSelectViewMode?: (mode: "board" | "orca") => void;
 }
