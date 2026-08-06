@@ -2,6 +2,8 @@
 
 A "primitives + tokens" design system — not a theming framework, not a component-doc site. The goal is to kill the style-object and JSX duplication in the board UI (most visible in `DetailPanel.tsx`) by extracting a small set of presentational primitives, while keeping the existing styling approach unchanged.
 
+`design-contract.md` is the source of visual direction for the current milestone; the primitives documented here render against the type scale, spacing rhythm, radius, color, elevation, and motion values it fixes. The focus-versus-selection rule it authors lands here, in this file, during Phase 84.
+
 ## The problem
 
 The frontend has massive style-object and JSX duplication: the secondary-button shape is re-inlined at many call sites, the "warning block" pattern (icon + label + muted body) is copy-pasted across Status / Start warning / Cleanup / stderr / Session-lost, and modal scaffolding is duplicated across `StartModal` and `CleanupModal`. That duplication is the extraction target.
