@@ -4,6 +4,7 @@ import {
   type CSSProperties,
   type Ref,
 } from "react";
+import { focusRing } from "./focus-ring.js";
 import { Spinner } from "./Spinner.js";
 
 type ButtonVariant = "secondary" | "primary" | "danger";
@@ -95,7 +96,7 @@ export function Button({
           ? "var(--surface-card-hover)"
           : "transparent"
         : base.background,
-    boxShadow: focused ? "0 0 0 2px var(--accent)" : "none",
+    ...focusRing(focused),
     ...(isDisabled ? { cursor: "default", opacity: 0.5 } : null),
     ...(loading
       ? {

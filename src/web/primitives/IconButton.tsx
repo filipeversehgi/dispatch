@@ -1,4 +1,5 @@
 import { useState, type ButtonHTMLAttributes, type CSSProperties } from "react";
+import { focusRing } from "./focus-ring.js";
 
 interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   "aria-label": string;
@@ -39,7 +40,7 @@ export function IconButton({
   const composed: CSSProperties = {
     ...iconButtonStyle,
     background: hovered ? "var(--surface-card-hover)" : "transparent",
-    boxShadow: focused ? "0 0 0 2px var(--accent)" : "none",
+    ...focusRing(focused),
     ...style,
   };
   return (
