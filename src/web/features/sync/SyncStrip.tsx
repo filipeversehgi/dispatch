@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import {
   Activity,
   Inbox,
@@ -10,6 +10,40 @@ import {
 import type { ConnectionStatus } from "../../hooks/useBoardStream.js";
 import { Glyph, wordmarkStyle } from "../../primitives/Glyph.js";
 import { IconButton } from "../../primitives/IconButton.js";
+
+const stripContainerStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "1fr auto 1fr",
+  alignItems: "center",
+  height: "var(--strip-height)",
+  flex: "0 0 var(--strip-height)",
+  padding: "0 var(--space-xl)",
+  borderBottom: "1px solid var(--border)",
+  background: "var(--surface-column)",
+  fontSize: "var(--font-label)",
+  fontWeight: "var(--weight-semibold)",
+  lineHeight: "var(--line-label)",
+  userSelect: "none",
+};
+
+const identityZoneStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--space-xs)",
+  color: "var(--text)",
+};
+
+const modeZoneStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifySelf: "center",
+};
+
+const rightZoneStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "flex-end",
+};
 
 interface SyncStripProps {
   syncedAt: string | null;
@@ -112,63 +146,42 @@ export function SyncStrip({
         : "Connected";
 
   return (
-    <div
-      style={{
-        height: "var(--strip-height)",
-        flex: "0 0 var(--strip-height)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: "0 var(--space-lg)",
-        borderBottom: "1px solid var(--border)",
-        background: "var(--surface-column)",
-        fontSize: "var(--font-label)",
-        fontWeight: "var(--weight-semibold)",
-        lineHeight: "var(--line-label)",
-        userSelect: "none",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--space-xs)",
-          color: "var(--text)",
-        }}
-      >
+    <div style={stripContainerStyle}>
+      <div style={identityZoneStyle}>
         <Glyph size={16} />
         <span style={wordmarkStyle}>DISPATCH</span>
       </div>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--space-sm)",
-        }}
-      >
-        <div
-          role="status"
-          aria-live="polite"
+      <div style={modeZoneStyle}>
+        <IconButton
+          aria-label="Board view"
+          title="Board view"
+          aria-pressed={viewMode === "board"}
+          onClick={() => onSelectViewMode?.("board")}
           style={{
-            display: "flex",
-            alignItems: "center",
-            color: disconnected ? "var(--destructive)" : "var(--text-muted)",
-            fontWeight: "var(--weight-medium)",
+            color: viewMode === "board" ? "var(--accent)" : "var(--text-muted)",
+            ...(viewMode === "board"
+              ? { background: "var(--surface-card-hover)" }
+              : {}),
           }}
         >
-          <span
-            title={dotTitle}
-            style={{
-              width: "6px",
-              height: "6px",
-              borderRadius: "50%",
-              background: dotColor,
-              marginRight: "var(--space-xs)",
-              flex: "0 0 auto",
-            }}
-          />
-          {text}
-        </div>
+          <Kanban size={16} />
+        </IconButton>
+        <IconButton
+          aria-label="Orca view"
+          title="Orca view"
+          aria-pressed={viewMode === "orca"}
+          onClick={() => onSelectViewMode?.("orca")}
+          style={{
+            color: viewMode === "orca" ? "var(--accent)" : "var(--text-muted)",
+            ...(viewMode === "orca"
+              ? { background: "var(--surface-card-hover)" }
+              : {}),
+          }}
+        >
+          <PanelLeft size={16} />
+        </IconButton>
+      </div>
+      <div style={rightZoneStyle}>
         <IconButton
           aria-label="New ticket"
           title="New ticket"
@@ -176,38 +189,6 @@ export function SyncStrip({
         >
           <Plus size={16} strokeWidth={2} aria-hidden="true" />
         </IconButton>
-        <div style={{ display: "flex", gap: "var(--space-xs)" }}>
-          <IconButton
-            aria-label="Board view"
-            title="Board view"
-            aria-pressed={viewMode === "board"}
-            onClick={() => onSelectViewMode?.("board")}
-            style={{
-              color:
-                viewMode === "board" ? "var(--accent)" : "var(--text-muted)",
-              ...(viewMode === "board"
-                ? { background: "var(--surface-card-hover)" }
-                : {}),
-            }}
-          >
-            <Kanban size={16} />
-          </IconButton>
-          <IconButton
-            aria-label="Orca view"
-            title="Orca view"
-            aria-pressed={viewMode === "orca"}
-            onClick={() => onSelectViewMode?.("orca")}
-            style={{
-              color:
-                viewMode === "orca" ? "var(--accent)" : "var(--text-muted)",
-              ...(viewMode === "orca"
-                ? { background: "var(--surface-card-hover)" }
-                : {}),
-            }}
-          >
-            <PanelLeft size={16} />
-          </IconButton>
-        </div>
         {viewMode === "board" && (
           <div style={{ position: "relative", display: "flex" }}>
             <IconButton
@@ -259,6 +240,29 @@ export function SyncStrip({
             )}
           </div>
         )}
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            color: disconnected ? "var(--destructive)" : "var(--text-muted)",
+            fontWeight: "var(--weight-medium)",
+          }}
+        >
+          <span
+            title={dotTitle}
+            style={{
+              width: "6px",
+              height: "6px",
+              borderRadius: "50%",
+              background: dotColor,
+              marginRight: "var(--space-xs)",
+              flex: "0 0 auto",
+            }}
+          />
+          {text}
+        </div>
         <div style={{ position: "relative", display: "flex" }}>
           <IconButton
             id="activity-toggle"
