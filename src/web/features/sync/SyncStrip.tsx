@@ -8,6 +8,7 @@ import {
   Settings,
 } from "lucide-react";
 import type { ConnectionStatus } from "../../hooks/useBoardStream.js";
+import { useMediaQuery } from "../../hooks/useMediaQuery.js";
 import { Glyph, wordmarkStyle } from "../../primitives/Glyph.js";
 import { IconButton } from "../../primitives/IconButton.js";
 
@@ -43,6 +44,23 @@ const rightZoneStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "flex-end",
+};
+
+const primaryClusterStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+};
+
+const utilityClusterStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+};
+
+const dividerStyle: CSSProperties = {
+  width: "1px",
+  height: "20px",
+  background: "var(--border)",
+  flex: "0 0 auto",
 };
 
 interface SyncStripProps {
@@ -94,6 +112,10 @@ export function SyncStrip({
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
+
+  const narrow = useMediaQuery("(max-width: 767px)");
+  const clusterGap = narrow ? "var(--space-sm)" : "var(--space-lg)";
+  const itemGap = narrow ? "var(--space-xs)" : "var(--space-sm)";
 
   const disconnected = connection === "disconnected";
   const syncedTs = syncedAt !== null ? new Date(syncedAt).getTime() : NaN;
@@ -181,122 +203,127 @@ export function SyncStrip({
           <PanelLeft size={16} />
         </IconButton>
       </div>
-      <div style={rightZoneStyle}>
-        <IconButton
-          aria-label="New ticket"
-          title="New ticket"
-          onClick={onOpenCreateTicket}
-        >
-          <Plus size={16} strokeWidth={2} aria-hidden="true" />
-        </IconButton>
-        {viewMode === "board" && (
+      <div style={{ ...rightZoneStyle, gap: clusterGap }}>
+        <div style={{ ...primaryClusterStyle, gap: itemGap }}>
+          <IconButton
+            aria-label="New ticket"
+            title="New ticket"
+            onClick={onOpenCreateTicket}
+          >
+            <Plus size={16} strokeWidth={2} aria-hidden="true" />
+          </IconButton>
+          {viewMode === "board" && (
+            <div style={{ position: "relative", display: "flex" }}>
+              <IconButton
+                id="inbox-toggle"
+                aria-label={
+                  inboxOpen
+                    ? "Close inbox, return to board"
+                    : inboxCount != null && inboxCount > 0
+                      ? `Open inbox, ${inboxCount} ticket${inboxCount === 1 ? "" : "s"}`
+                      : "Open inbox"
+                }
+                title={
+                  inboxCount != null && inboxCount > 0
+                    ? `Inbox — ${inboxCount} ticket${inboxCount === 1 ? "" : "s"}`
+                    : "Inbox"
+                }
+                aria-expanded={inboxOpen}
+                aria-controls="inbox-view"
+                onClick={onOpenInbox}
+                style={{
+                  color: inboxOpen ? "var(--accent)" : "var(--text-muted)",
+                  ...(inboxOpen
+                    ? { background: "var(--surface-card-hover)" }
+                    : {}),
+                }}
+              >
+                <Inbox size={16} />
+              </IconButton>
+              {inboxCount != null && inboxCount > 0 && (
+                <span
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    top: "2px",
+                    right: "2px",
+                    background:
+                      "color-mix(in srgb, var(--accent) 16%, var(--surface-column))",
+                    color: "var(--accent)",
+                    borderRadius: "var(--radius)",
+                    padding: "0 var(--space-xs)",
+                    fontSize: "var(--font-label)",
+                    fontWeight: "var(--weight-semibold)",
+                    lineHeight: "var(--line-label)",
+                    pointerEvents: "none",
+                  }}
+                >
+                  {inboxCount}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+        <span aria-hidden="true" style={dividerStyle} />
+        <div style={{ ...utilityClusterStyle, gap: itemGap }}>
+          <div
+            role="status"
+            aria-live="polite"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              color: disconnected ? "var(--destructive)" : "var(--text-muted)",
+              fontWeight: "var(--weight-medium)",
+            }}
+          >
+            <span
+              title={dotTitle}
+              style={{
+                width: "6px",
+                height: "6px",
+                borderRadius: "50%",
+                background: dotColor,
+                marginRight: "var(--space-xs)",
+                flex: "0 0 auto",
+              }}
+            />
+            {text}
+          </div>
           <div style={{ position: "relative", display: "flex" }}>
             <IconButton
-              id="inbox-toggle"
-              aria-label={
-                inboxOpen
-                  ? "Close inbox, return to board"
-                  : inboxCount != null && inboxCount > 0
-                    ? `Open inbox, ${inboxCount} ticket${inboxCount === 1 ? "" : "s"}`
-                    : "Open inbox"
-              }
-              title={
-                inboxCount != null && inboxCount > 0
-                  ? `Inbox — ${inboxCount} ticket${inboxCount === 1 ? "" : "s"}`
-                  : "Inbox"
-              }
-              aria-expanded={inboxOpen}
-              aria-controls="inbox-view"
-              onClick={onOpenInbox}
-              style={{
-                color: inboxOpen ? "var(--accent)" : "var(--text-muted)",
-                ...(inboxOpen
-                  ? { background: "var(--surface-card-hover)" }
-                  : {}),
-              }}
+              id="activity-toggle"
+              aria-label="Activity feed"
+              title={activityUnseen ? "Activity — unseen" : "Activity"}
+              aria-expanded={activityOpen}
+              aria-controls="activity-drawer"
+              onClick={onOpenActivity}
             >
-              <Inbox size={16} />
+              <Activity size={16} />
             </IconButton>
-            {inboxCount != null && inboxCount > 0 && (
+            {activityUnseen && (
               <span
                 aria-hidden="true"
                 style={{
                   position: "absolute",
                   top: "2px",
                   right: "2px",
-                  background:
-                    "color-mix(in srgb, var(--accent) 16%, var(--surface-column))",
-                  color: "var(--accent)",
-                  borderRadius: "var(--radius)",
-                  padding: "0 var(--space-xs)",
-                  fontSize: "var(--font-label)",
-                  fontWeight: "var(--weight-semibold)",
-                  lineHeight: "var(--line-label)",
+                  width: "6px",
+                  height: "6px",
+                  borderRadius: "50%",
+                  background: "var(--status-ok)",
                   pointerEvents: "none",
                 }}
-              >
-                {inboxCount}
-              </span>
+              />
             )}
           </div>
-        )}
-        <div
-          role="status"
-          aria-live="polite"
-          style={{
-            display: "flex",
-            alignItems: "center",
-            color: disconnected ? "var(--destructive)" : "var(--text-muted)",
-            fontWeight: "var(--weight-medium)",
-          }}
-        >
-          <span
-            title={dotTitle}
-            style={{
-              width: "6px",
-              height: "6px",
-              borderRadius: "50%",
-              background: dotColor,
-              marginRight: "var(--space-xs)",
-              flex: "0 0 auto",
-            }}
-          />
-          {text}
-        </div>
-        <div style={{ position: "relative", display: "flex" }}>
           <IconButton
-            id="activity-toggle"
-            aria-label="Activity feed"
-            title={activityUnseen ? "Activity — unseen" : "Activity"}
-            aria-expanded={activityOpen}
-            aria-controls="activity-drawer"
-            onClick={onOpenActivity}
+            aria-label="Sync filters"
+            title="Settings"
+            onClick={onOpenSettings}
           >
-            <Activity size={16} />
+            <Settings size={16} />
           </IconButton>
-          {activityUnseen && (
-            <span
-              aria-hidden="true"
-              style={{
-                position: "absolute",
-                top: "2px",
-                right: "2px",
-                width: "6px",
-                height: "6px",
-                borderRadius: "50%",
-                background: "var(--status-ok)",
-                pointerEvents: "none",
-              }}
-            />
-          )}
         </div>
-        <IconButton
-          aria-label="Sync filters"
-          title="Settings"
-          onClick={onOpenSettings}
-        >
-          <Settings size={16} />
-        </IconButton>
       </div>
     </div>
   );
