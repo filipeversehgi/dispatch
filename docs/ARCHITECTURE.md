@@ -37,6 +37,7 @@ sections are scaffolded here and filled by the later Phase 10 migration plans.
   - [Cleanup Lifecycle](#cleanup-lifecycle)
   - [Hooks Status Channel](#hooks-status-channel)
   - [Dev-Server Preview Detection](#dev-server-preview-detection)
+  - [Design System Invariants](#design-system-invariants)
 - [Do Not Change Contracts](#do-not-change-contracts)
 - [Security Threat Model](#security-threat-model)
 - [Known Residuals](#known-residuals)
@@ -1787,6 +1788,32 @@ route, the shape `pollNow()` already has for the Linear poller) and because the 
 `pollOnce()`-driven design genuinely did re-enter. Anyone adding that second trigger must know what
 the guard returns: the promise of the tick ALREADY in flight, not a fresh scan. A caller wanting
 guaranteed-fresh results has to wait for the in-flight tick to settle and then run another.
+
+### Design System Invariants
+
+**Keyboard focus is an outline, never a box-shadow (`NEW-15`).** The rule, authored in `docs/standards/frontend-design-system.md`: "a keyboard focus ring must never look identical to selection."
+`focusRing()` in `src/web/primitives/focus-ring.ts` is the single definition every call site
+consumes. Where an `overflow: hidden` ancestor clips the ring's offset, the locked resolution is
+to drop the offset to 0 at that call site — never to fall back to a box-shadow expression, which
+is structurally identical to the selection ring and is exactly the defect this invariant exists
+to prevent.
+
+**One shadow token for the whole app (`NEW-16`).** `--shadow-float`, defined once in
+`src/web/styles/tokens.css`, is the system's only shadow and is sanctioned on exactly three
+elements: the search dropdown, the modal, and the drag overlay. Cards and columns carry no shadow
+at rest; a fourth consumer, or a second independently-defined shadow value, is a regression rather
+than a new design choice.
+
+**One wordmark definition (`NEW-17`).** `wordmarkStyle` in `src/web/primitives/Glyph.tsx` is the
+only place the DISPATCH wordmark's type treatment (size, weight, letter-spacing) is written down.
+Every site that renders the wordmark imports it rather than repeating the values inline.
+`src/web/**/*.tsx` carries zero comments by this repo's comment standard (`docs/standards/comments.md`
+rule 2's tsx carve-out), so this section — not a JSDoc pointer on `wordmarkStyle` itself — is the
+durable home the invariant-audit gate reads for `NEW-17`.
+
+`scripts/check-invariants.mjs`'s retired-pattern gate enforces all three mechanically: it fails if
+the retired box-shadow focus expression, the retired float-shadow literal, or a hardcoded wordmark
+weight reappears anywhere under `src/**/*.{ts,tsx}`.
 
 ## Do Not Change Contracts
 

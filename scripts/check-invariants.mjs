@@ -40,8 +40,10 @@ const ID_RE =
  * size so an accidentally emptied/truncated baseline (or an unratified
  * regeneration) can never silently disarm the gate into `PASS: 0/0`. Bump this
  * ONLY together with a deliberate, human-ratified baseline regeneration.
+ * @remarks Moved from 115 to 118 for the deliberate three-ID design-system
+ * re-freeze (`NEW-15`, `NEW-16`, `NEW-17`) — see docs/ARCHITECTURE.md#design-system-invariants.
  */
-const FROZEN_COUNT = 115;
+const FROZEN_COUNT = 118;
 
 const SRC_DIR = "src";
 const SKIP_DIR = join("src", "web", "dist");
