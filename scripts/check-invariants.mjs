@@ -40,15 +40,16 @@ const ID_RE =
  * size so an accidentally emptied/truncated baseline (or an unratified
  * regeneration) can never silently disarm the gate into `PASS: 0/0`. Bump this
  * ONLY together with a deliberate, human-ratified baseline regeneration.
- * @remarks Moved from 115 to 118 for the deliberate three-ID design-system
- * re-freeze (`NEW-15`, `NEW-16`, `NEW-17`) — see docs/ARCHITECTURE.md#design-system-invariants.
+ * @remarks Moved from 118 to 119 for the deliberate one-ID app-shell zone
+ * re-freeze (`NEW-18`) — see docs/ARCHITECTURE.md#app-shell-zones.
  */
-const FROZEN_COUNT = 118;
+const FROZEN_COUNT = 119;
 
 const SRC_DIR = "src";
 const SKIP_DIR = join("src", "web", "dist");
 const DOCS_PATH = join("docs", "ARCHITECTURE.md");
 const BASELINE_PATH = join("scripts", "invariant-baseline.txt");
+const SYNC_STRIP_PATH = join("src", "web", "features", "sync", "SyncStrip.tsx");
 
 /**
  * Recursively list every .ts/.tsx source file, skipping the built web bundle.
@@ -113,6 +114,32 @@ function checkRetiredPatterns() {
       }
     });
   }
+  return violations;
+}
+
+/**
+ * File-scoped strip-padding gate (`NEW-18`). Deliberately NOT a `RETIRED_PATTERNS` entry: the
+ * retired 16px literal below is a legitimate value in eight other files, so a global scan would
+ * false-positive on all of them — this reads only `SyncStrip.tsx`, where that same literal is a
+ * retired regression back to the strip's pre-24px padding. See docs/ARCHITECTURE.md#app-shell-zones
+ * for the durable home.
+ * @returns Violation report lines, one per matching line; a single line if the file is missing.
+ */
+function checkStripPadding() {
+  if (!existsSync(SYNC_STRIP_PATH)) {
+    return [
+      `${SYNC_STRIP_PATH}: file not found — NEW-18 cannot verify strip padding`,
+    ];
+  }
+  const violations = [];
+  const lines = readFileSync(SYNC_STRIP_PATH, "utf8").split("\n");
+  lines.forEach((line, i) => {
+    if (line.includes('padding: "0 var(--space-lg)"')) {
+      violations.push(
+        `${SYNC_STRIP_PATH}:${i + 1}: retired pattern NEW-18 — strip padding must stay var(--space-xl)`,
+      );
+    }
+  });
   return violations;
 }
 
@@ -209,16 +236,19 @@ function generateBaseline() {
 }
 
 /**
- * Run the invariant-home diff plus the retired-pattern scan and set the process exit code.
+ * Run the invariant-home diff, the global retired-pattern scan, and the file-scoped
+ * strip-padding check, then set the process exit code.
  * @remarks All three diff legs gate the exit, not just MISSING: in a
  * frozen-baseline world an EXTRA (homed but unbaselined — a typo'd ID in docs
  * or an unratified new ID in JSDoc) and an ORPHAN (present in src but
  * unbaselined) are always defects, and an informational-only leg would let
  * them accumulate silently through the body-comment deletion phases. The
- * retired-pattern leg is independent of the ID-baseline arithmetic above — a
- * design literal coming back is a defect regardless of whether any invariant
- * ID also moved.
- * @returns Nothing; exits 0 iff MISSING, ORPHAN, EXTRA, and RETIRED are all empty.
+ * retired-pattern leg and the strip-padding leg are both independent of the
+ * ID-baseline arithmetic above — a design literal coming back is a defect
+ * regardless of whether any invariant ID also moved. The strip-padding leg
+ * (`NEW-18`) is deliberately file-scoped rather than folded into
+ * `RETIRED_PATTERNS`, since the same literal is legitimate in eight other files.
+ * @returns Nothing; exits 0 iff MISSING, ORPHAN, EXTRA, RETIRED, and STRIP PADDING are all empty.
  */
 function run() {
   const home = new Set();
@@ -237,14 +267,20 @@ function run() {
   const orphan = diffSorted(present, baseline);
   const extra = diffSorted(home, baseline);
   const retired = checkRetiredPatterns();
+  const stripPadding = checkStripPadding();
 
   report("MISSING (baseline - home)", missing);
   report("ORPHAN  (present - baseline)", orphan);
   report("EXTRA   (home - baseline)", extra);
   report("RETIRED (design literals that came back)", retired);
+  report("STRIP PADDING (NEW-18)", stripPadding);
 
   const defects =
-    missing.length + orphan.length + extra.length + retired.length;
+    missing.length +
+    orphan.length +
+    extra.length +
+    retired.length +
+    stripPadding.length;
   console.log(
     `\n${defects === 0 ? "PASS" : "FAIL"}: ${baseline.size - missing.length}/${baseline.size} invariants homed` +
       (missing.length ? ` (${missing.length} missing a home)` : "") +
@@ -253,6 +289,9 @@ function run() {
         : "") +
       (retired.length
         ? ` (${retired.length} retired pattern(s) reappeared)`
+        : "") +
+      (stripPadding.length
+        ? ` (${stripPadding.length} strip-padding regression(s))`
         : ""),
   );
   process.exit(defects === 0 ? 0 : 1);

@@ -38,6 +38,7 @@ sections are scaffolded here and filled by the later Phase 10 migration plans.
   - [Hooks Status Channel](#hooks-status-channel)
   - [Dev-Server Preview Detection](#dev-server-preview-detection)
   - [Design System Invariants](#design-system-invariants)
+  - [App Shell Zones](#app-shell-zones)
 - [Do Not Change Contracts](#do-not-change-contracts)
 - [Security Threat Model](#security-threat-model)
 - [Known Residuals](#known-residuals)
@@ -1811,9 +1812,68 @@ Every site that renders the wordmark imports it rather than repeating the values
 rule 2's tsx carve-out), so this section — not a JSDoc pointer on `wordmarkStyle` itself — is the
 durable home the invariant-audit gate reads for `NEW-17`.
 
-`scripts/check-invariants.mjs`'s retired-pattern gate enforces all three mechanically: it fails if
-the retired box-shadow focus expression, the retired float-shadow literal, or a hardcoded wordmark
-weight reappears anywhere under `src/**/*.{ts,tsx}`.
+`scripts/check-invariants.mjs` mechanically covers all four through two separate checks: a
+global retired-pattern scan over `src/**/*.{ts,tsx}` catches the retired box-shadow focus
+expression, the retired float-shadow literal, and a hardcoded wordmark weight reappearing
+anywhere in source, while a second, file-scoped check (`checkStripPadding`, `NEW-18`, see
+[App Shell Zones](#app-shell-zones)) covers a fourth retired literal that the global scan cannot
+safely reach.
+
+### App Shell Zones
+
+**The zone grid.** `SyncStrip.tsx` renders its three top-level children through a CSS grid with
+`gridTemplateColumns: "1fr auto 1fr"`: column 1 is the identity zone (`Glyph` plus the DISPATCH
+wordmark), column 2 is the mode control and NOTHING else, and column 3 is the primary cluster
+(New Ticket, then Inbox while `viewMode === "board"`) followed by a hairline divider and the
+utility cluster (sync status, Activity, Settings). Column 2's exclusivity is load-bearing: because
+`justifySelf: "center"` places it against the grid's own centerline rather than against its
+neighbors' combined width, its horizontal position stays invariant when anything in column 1 or
+column 3 mounts or unmounts — specifically, it stops the Inbox button's `viewMode === "board"`
+guard from shifting the view switch sideways when Orca view unmounts Inbox. A flex row with
+`justifyContent: "space-between"` cannot make this guarantee, because removing a sibling from
+either side changes that side's total width and the center-weighted middle drifts with it.
+
+**The weight tiers.** Within column 3, the primary cluster (New Ticket, Inbox) sits nearest the
+grid's center and the utility cluster (sync status, Activity, Settings) sits nearest the edge,
+separated by a 1px `--border` hairline (`dividerStyle`). Utility demotion is positional and
+color-based only — Activity and Settings stay at `IconButton`'s 16px glyph on `--text-muted` with
+no `style` override — never a size reduction: `IconButton.tsx`'s 28px box is the touch-target
+floor and this phase does not shrink it.
+
+**Why New Ticket is a local composition.** New Ticket left the `IconButton` primitive entirely and
+renders as a native `<button>` with its own `newTicketBaseStyle` / `newTicketLabelledStyle` /
+`newTicketIconOnlyStyle` constants and its own hover/focus state pair. Both `IconButton.tsx` and
+`Button.tsx` compute their resting `background` before spreading the caller's `style` prop, so
+neither primitive can express a resting fill (`--surface-card`) that also lifts on hover
+(`--surface-card-hover`) — a caller-supplied `style.background` would permanently pin one or the
+other. A contained control needs both at once, so it is composed locally rather than forcing a
+primitive change for a single consumer. Extraction to `src/web/primitives/` waits for a second
+consumer.
+
+**Narrow-width behaviour.** Nothing is hidden or removed below 768px. `useMediaQuery` in
+`SyncStrip.tsx` only ever compresses `clusterGap` (16px → 8px, the gap between the primary and
+utility clusters) and `itemGap` (8px → 4px, the gap within each cluster) — no control, badge, or
+the `role="status" aria-live="polite"` sync region is conditionally rendered away at any width.
+
+**The written non-goal: no persistent left sidebar.** A single-board product gains no navigation
+value from a persistent left sidebar and pays for it in real board width with nothing to show for
+it, so this app shell does not have one. Its enforceable form: `AppShell.tsx` mounts exactly one
+chrome container (`chromeRef`, holding `header`) above `content` and `detail` — there is no second
+top-level chrome slot for a sidebar to occupy without a structural change to `AppShell.tsx` itself.
+This is recorded here, as a written decision with a durable artifact, specifically so it cannot
+silently reopen in a later phase the way an unrecorded non-action would.
+
+**`NEW-18`.** The strip's horizontal padding is `var(--space-xl)` (24px), written once in
+`stripContainerStyle` in `SyncStrip.tsx`, flat at every breakpoint — no responsive padding
+cascade, unlike `--strip-height`. `scripts/check-invariants.mjs` fails the build if the retired
+`padding: "0 var(--space-lg)"` (16px) literal returns to that file. This check is deliberately
+file-scoped (`checkStripPadding`) rather than a `RETIRED_PATTERNS` entry, because the identical
+literal is a legitimate value in eight other files (`SearchBox.tsx`, `UpdateBanner.tsx`,
+`MoveToPicker.tsx`, `FirstRunSetup.tsx`, `CleanupModal.tsx`, `ActivityDrawer.tsx`, `Button.tsx`,
+`OrcaSection.tsx`) and a global substring scan would false-positive on all of them. Mirroring
+`NEW-17`'s own resolution: `src/web/**/*.tsx` carries zero comments under this repo's comment
+standard (`docs/standards/comments.md` rule 2's tsx carve-out), so this section — not a JSDoc
+pointer on any `.tsx` file — is the durable home the invariant-audit gate reads for `NEW-18`.
 
 ## Do Not Change Contracts
 
