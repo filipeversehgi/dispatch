@@ -150,9 +150,10 @@ export function CardView({
     ) : null;
 
   const hoverOrSelected = hover || selected;
-  const border =
-    needsAttention || multiSelected
-      ? "1px solid var(--accent)"
+  const border = needsAttention
+    ? "1px solid var(--accent)"
+    : multiSelected
+      ? "1px solid var(--text)"
       : !elevated && hoverOrSelected
         ? "1px solid var(--text-muted)"
         : "1px solid var(--border)";
@@ -162,10 +163,12 @@ export function CardView({
       ? "var(--surface-card-hover)"
       : "var(--surface-card)";
   const boxShadowParts: string[] = [];
-  if (needsAttention || multiSelected) {
+  if (needsAttention) {
     boxShadowParts.push("0 0 0 1px var(--accent)");
+  } else if (multiSelected) {
+    boxShadowParts.push("0 0 0 1px var(--text)");
   }
-  if (elevated) boxShadowParts.push("0 6px 16px rgba(0,0,0,0.45)");
+  if (elevated) boxShadowParts.push("var(--shadow-float)");
   if (hover && !elevated && !selected && !needsAttention) {
     boxShadowParts.push("0 2px 8px rgba(0,0,0,0.3)");
   }
@@ -211,7 +214,7 @@ export function CardView({
               width: "14px",
               height: "14px",
               borderRadius: "50%",
-              background: "var(--accent)",
+              background: "var(--text)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -221,7 +224,7 @@ export function CardView({
               size={10}
               strokeWidth={2.5}
               aria-hidden="true"
-              style={{ color: "var(--text)" }}
+              style={{ color: "var(--bg)" }}
             />
           </span>
         )}
