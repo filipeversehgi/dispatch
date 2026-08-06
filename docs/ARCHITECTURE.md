@@ -1882,16 +1882,23 @@ pointer on any `.tsx` file — is the durable home the invariant-audit gate read
 (`viewSegmentStyle`) is 24px tall by 28px wide, clearing WCAG 2.2 SC 2.5.8 Target Size
 (Minimum)'s 24×24 CSS-px floor — a deliberate, measured exception to the utility cluster's 28px
 touch-target floor described above, scoped to this control only. The active segment's whole box
-takes `var(--accent)` as its background with `var(--text)` icon color; the inactive segment stays
-transparent with `var(--text-muted)`. This was chosen over two other rendered candidates — an
-icon-color-only baseline and a labelled variant — because it was the only one that stayed
-identifiable "in well under a second" at every one of the four measured breakpoints; the
-icon-color-only baseline required close inspection to tell the segments apart, and the labelled
-candidate's advantage disappeared below 1024px, where it renders pixel-identical to the
-icon-color-only baseline. `role="group"` with `aria-label="View"` was kept instead of
+originally took `var(--accent)` as an opaque background (Candidate C, chosen over two other
+rendered candidates — an icon-color-only baseline and a labelled variant — because it was the
+only one that stayed identifiable "in well under a second" at every one of the four measured
+breakpoints; the icon-color-only baseline required close inspection to tell the segments apart,
+and the labelled candidate's advantage disappeared below 1024px, where it renders pixel-identical
+to the icon-color-only baseline). A later Phase 85 UI review found that opaque fill outweighed
+New Ticket, the control this same phase set out to elevate as "the single most-used control in
+the strip" — the mode control, which is used less often, was reading as the strip's most
+prominent element. The active segment now takes `activeSegmentTint`
+(`color-mix(in srgb, var(--accent) 16%, var(--surface-column))`, the same tint the inbox count
+badge already uses) as its background with `var(--accent)` icon color; the inactive segment stays
+transparent with `var(--text-muted)`. The Inbox toggle's open state was aligned to the same
+`activeSegmentTint` + accent-icon grammar in the same pass, so the primary cluster now expresses
+"active" one way, not two. `role="group"` with `aria-label="View"` was kept instead of
 `radiogroup`/`radio`, since that conversion would change keyboard semantics. See
 `docs/standards/design-contract.md`'s `## Deferred decisions` row 2 for the full rendered-evidence
-comparison.
+comparison and the later retuning.
 
 ## Do Not Change Contracts
 

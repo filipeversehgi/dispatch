@@ -52,6 +52,9 @@ const viewSegmentStyle: CSSProperties = {
   borderRadius: "var(--radius-sm)",
 };
 
+const activeSegmentTint =
+  "color-mix(in srgb, var(--accent) 16%, var(--surface-column))";
+
 const rightZoneStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
@@ -223,8 +226,8 @@ export function SyncStrip({
           onClick={() => onSelectViewMode?.("board")}
           style={{
             ...viewSegmentStyle,
-            color: viewMode === "board" ? "var(--text)" : "var(--text-muted)",
-            ...(viewMode === "board" ? { background: "var(--accent)" } : {}),
+            color: viewMode === "board" ? "var(--accent)" : "var(--text-muted)",
+            ...(viewMode === "board" ? { background: activeSegmentTint } : {}),
           }}
         >
           <Kanban size={16} />
@@ -236,8 +239,8 @@ export function SyncStrip({
           onClick={() => onSelectViewMode?.("orca")}
           style={{
             ...viewSegmentStyle,
-            color: viewMode === "orca" ? "var(--text)" : "var(--text-muted)",
-            ...(viewMode === "orca" ? { background: "var(--accent)" } : {}),
+            color: viewMode === "orca" ? "var(--accent)" : "var(--text-muted)",
+            ...(viewMode === "orca" ? { background: activeSegmentTint } : {}),
           }}
         >
           <PanelLeft size={16} />
