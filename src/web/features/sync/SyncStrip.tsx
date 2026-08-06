@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import type { ConnectionStatus } from "../../hooks/useBoardStream.js";
 import { useMediaQuery } from "../../hooks/useMediaQuery.js";
+import { focusRing } from "../../primitives/focus-ring.js";
 import { Glyph, wordmarkStyle } from "../../primitives/Glyph.js";
 import { IconButton } from "../../primitives/IconButton.js";
 
@@ -61,6 +62,33 @@ const dividerStyle: CSSProperties = {
   height: "20px",
   background: "var(--border)",
   flex: "0 0 auto",
+};
+
+const newTicketBaseStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "var(--space-xs)",
+  flex: "0 0 auto",
+  height: "28px",
+  background: "var(--surface-card)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius)",
+  color: "var(--text)",
+  fontSize: "var(--font-label)",
+  fontWeight: "var(--weight-semibold)",
+  lineHeight: "var(--line-label)",
+  cursor: "pointer",
+  outline: "none",
+};
+
+const newTicketLabelledStyle: CSSProperties = {
+  padding: "0 var(--space-sm)",
+};
+
+const newTicketIconOnlyStyle: CSSProperties = {
+  padding: 0,
+  width: "28px",
+  justifyContent: "center",
 };
 
 interface SyncStripProps {
@@ -116,6 +144,9 @@ export function SyncStrip({
   const narrow = useMediaQuery("(max-width: 767px)");
   const clusterGap = narrow ? "var(--space-sm)" : "var(--space-lg)";
   const itemGap = narrow ? "var(--space-xs)" : "var(--space-sm)";
+  const iconOnly = useMediaQuery("(max-width: 1023px)");
+  const [newTicketHovered, setNewTicketHovered] = useState(false);
+  const [newTicketFocused, setNewTicketFocused] = useState(false);
 
   const disconnected = connection === "disconnected";
   const syncedTs = syncedAt !== null ? new Date(syncedAt).getTime() : NaN;
@@ -205,13 +236,29 @@ export function SyncStrip({
       </div>
       <div style={{ ...rightZoneStyle, gap: clusterGap }}>
         <div style={{ ...primaryClusterStyle, gap: itemGap }}>
-          <IconButton
+          <button
+            type="button"
             aria-label="New ticket"
             title="New ticket"
             onClick={onOpenCreateTicket}
+            onMouseEnter={() => setNewTicketHovered(true)}
+            onMouseLeave={() => setNewTicketHovered(false)}
+            onFocus={(event) =>
+              setNewTicketFocused(event.currentTarget.matches(":focus-visible"))
+            }
+            onBlur={() => setNewTicketFocused(false)}
+            style={{
+              ...newTicketBaseStyle,
+              ...(iconOnly ? newTicketIconOnlyStyle : newTicketLabelledStyle),
+              background: newTicketHovered
+                ? "var(--surface-card-hover)"
+                : "var(--surface-card)",
+              ...focusRing(newTicketFocused),
+            }}
           >
             <Plus size={16} strokeWidth={2} aria-hidden="true" />
-          </IconButton>
+            {iconOnly ? null : <span>New ticket</span>}
+          </button>
           {viewMode === "board" && (
             <div style={{ position: "relative", display: "flex" }}>
               <IconButton
