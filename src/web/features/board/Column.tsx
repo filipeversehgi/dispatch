@@ -339,7 +339,7 @@ export function Column({
           style={{
             background: `color-mix(in srgb, ${COLUMN_ACCENT[column]} 16%, var(--surface-column))`,
             color: COLUMN_ACCENT[column],
-            borderRadius: "var(--radius)",
+            borderRadius: "var(--radius-sm)",
             padding: "0 var(--space-xs)",
             fontSize: "var(--font-micro)",
           }}
