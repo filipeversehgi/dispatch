@@ -439,12 +439,11 @@ export function DetailPanel({
                   {hasLiveSession ? (
                     detailsExpanded && (
                       <div
-                        className="scroll-stable-y"
+                        className="scroll-stable-y reading-surface"
                         style={{
                           flex: "0 1 auto",
                           maxHeight: "40%",
                           overflowY: "auto",
-                          padding: "var(--space-xl)",
                         }}
                       >
                         <ReferenceBlocks card={c} members={members} />
@@ -459,11 +458,10 @@ export function DetailPanel({
                     )
                   ) : (
                     <div
-                      className="scroll-stable-y"
+                      className="scroll-stable-y reading-surface"
                       style={{
                         flex: c?.tmuxSession ? "0 1 auto" : "1 1 auto",
                         overflowY: "auto",
-                        padding: "var(--space-xl)",
                       }}
                     >
                       <ReferenceBlocks card={c} members={members} />
