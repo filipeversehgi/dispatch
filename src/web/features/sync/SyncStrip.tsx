@@ -35,10 +35,21 @@ const identityZoneStyle: CSSProperties = {
   color: "var(--text)",
 };
 
-const modeZoneStyle: CSSProperties = {
+const modeControlStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifySelf: "center",
+  height: "28px",
+  padding: "2px",
+  background: "var(--surface-card)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius)",
+};
+
+const viewSegmentStyle: CSSProperties = {
+  width: "28px",
+  height: "24px",
+  borderRadius: "var(--radius-sm)",
 };
 
 const rightZoneStyle: CSSProperties = {
@@ -204,17 +215,16 @@ export function SyncStrip({
         <Glyph size={16} />
         <span style={wordmarkStyle}>DISPATCH</span>
       </div>
-      <div style={modeZoneStyle}>
+      <div style={modeControlStyle} role="group" aria-label="View">
         <IconButton
           aria-label="Board view"
           title="Board view"
           aria-pressed={viewMode === "board"}
           onClick={() => onSelectViewMode?.("board")}
           style={{
-            color: viewMode === "board" ? "var(--accent)" : "var(--text-muted)",
-            ...(viewMode === "board"
-              ? { background: "var(--surface-card-hover)" }
-              : {}),
+            ...viewSegmentStyle,
+            color: viewMode === "board" ? "var(--text)" : "var(--text-muted)",
+            ...(viewMode === "board" ? { background: "var(--accent)" } : {}),
           }}
         >
           <Kanban size={16} />
@@ -225,10 +235,9 @@ export function SyncStrip({
           aria-pressed={viewMode === "orca"}
           onClick={() => onSelectViewMode?.("orca")}
           style={{
-            color: viewMode === "orca" ? "var(--accent)" : "var(--text-muted)",
-            ...(viewMode === "orca"
-              ? { background: "var(--surface-card-hover)" }
-              : {}),
+            ...viewSegmentStyle,
+            color: viewMode === "orca" ? "var(--text)" : "var(--text-muted)",
+            ...(viewMode === "orca" ? { background: "var(--accent)" } : {}),
           }}
         >
           <PanelLeft size={16} />

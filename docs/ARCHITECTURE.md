@@ -1875,6 +1875,24 @@ literal is a legitimate value in eight other files (`SearchBox.tsx`, `UpdateBann
 standard (`docs/standards/comments.md` rule 2's tsx carve-out), so this section — not a JSDoc
 pointer on any `.tsx` file — is the durable home the invariant-audit gate reads for `NEW-18`.
 
+**The chosen view-switch rendering.** `modeControlStyle` in `SyncStrip.tsx` is a 28px-tall,
+2px-padded `role="group" aria-label="View"` container with a `--surface-card` fill, a 1px
+`--border` hairline, and `--radius` (6px) corners — the concentric outer curve to each segment's
+`--radius-sm` (4px) inner curve, since 6 minus the 2px inset equals 4. Each segment
+(`viewSegmentStyle`) is 24px tall by 28px wide, clearing WCAG 2.2 SC 2.5.8 Target Size
+(Minimum)'s 24×24 CSS-px floor — a deliberate, measured exception to the utility cluster's 28px
+touch-target floor described above, scoped to this control only. The active segment's whole box
+takes `var(--accent)` as its background with `var(--text)` icon color; the inactive segment stays
+transparent with `var(--text-muted)`. This was chosen over two other rendered candidates — an
+icon-color-only baseline and a labelled variant — because it was the only one that stayed
+identifiable "in well under a second" at every one of the four measured breakpoints; the
+icon-color-only baseline required close inspection to tell the segments apart, and the labelled
+candidate's advantage disappeared below 1024px, where it renders pixel-identical to the
+icon-color-only baseline. `role="group"` with `aria-label="View"` was kept instead of
+`radiogroup`/`radio`, since that conversion would change keyboard semantics. See
+`docs/standards/design-contract.md`'s `## Deferred decisions` row 2 for the full rendered-evidence
+comparison.
+
 ## Do Not Change Contracts
 
 These are seams that refactors must hold **byte/shape-identical**. A change to any of them
