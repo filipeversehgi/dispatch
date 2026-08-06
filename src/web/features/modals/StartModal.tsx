@@ -16,6 +16,7 @@ import {
 } from "../../lib/api.js";
 import { Button } from "../../primitives/Button.js";
 import { Field } from "../../primitives/Field.js";
+import { focusRing } from "../../primitives/focus-ring.js";
 import { IconButton } from "../../primitives/IconButton.js";
 import { Modal, type ModalControl } from "../../primitives/Modal.js";
 import { Notice } from "../../primitives/Notice.js";
@@ -35,9 +36,6 @@ const SEED_SLUG_ORDER = [
 ];
 
 const WRITE_CODE_DIRECTLY_NAME = "Write code directly";
-
-const focusRing = (on: boolean): string =>
-  on ? "0 0 0 2px var(--accent)" : "none";
 
 function orderSeedRows(valid: Playbook[]): Playbook[] {
   const bySlug = new Map(valid.map((p) => [p.slug, p]));
@@ -92,7 +90,7 @@ function FolderRow({ path, onSelect, onRemove }: FolderRowProps) {
           whiteSpace: "nowrap",
           cursor: "pointer",
           outline: "none",
-          boxShadow: focusRing(focus),
+          ...focusRing(focus),
         }}
       >
         {path}
@@ -185,7 +183,7 @@ function FolderPicker({
             gap: "var(--space-sm)",
             cursor: "pointer",
             outline: "none",
-            boxShadow: focusRing(triggerFocus),
+            ...focusRing(triggerFocus),
           }}
         >
           <span
@@ -364,7 +362,7 @@ function KickoffPlaybookRow({
         lineHeight: "var(--line-body)",
         cursor: "pointer",
         outline: "none",
-        boxShadow: focusRing(focus),
+        ...focusRing(focus),
       }}
     >
       <span
@@ -477,7 +475,7 @@ function KickoffPlaybookPicker({
           gap: "var(--space-sm)",
           cursor: "pointer",
           outline: "none",
-          boxShadow: focusRing(triggerFocus),
+          ...focusRing(triggerFocus),
         }}
       >
         <span
@@ -625,7 +623,7 @@ function RepoRow({
             accentColor: "var(--accent)",
             borderRadius: "var(--radius)",
             outline: "none",
-            boxShadow: focusRing(checkFocus),
+            ...focusRing(checkFocus),
             flex: "0 0 auto",
           }}
         />
@@ -675,7 +673,7 @@ function RepoRow({
               fontSize: "var(--font-label)",
               color: "var(--text)",
               outline: "none",
-              boxShadow: focusRing(chipFocus),
+              ...focusRing(chipFocus),
             }}
           />
         ) : (
@@ -705,7 +703,7 @@ function RepoRow({
               color: "var(--text-muted)",
               cursor: "pointer",
               outline: "none",
-              boxShadow: focusRing(chipFocus),
+              ...focusRing(chipFocus),
             }}
           >
             {base}
@@ -741,7 +739,7 @@ function EditInSettingsLink({ onClick }: EditInSettingsLinkProps) {
         lineHeight: "var(--line-label)",
         cursor: "pointer",
         outline: "none",
-        boxShadow: focusRing(focus),
+        ...focusRing(focus),
       }}
     >
       Edit in Settings
@@ -1249,8 +1247,7 @@ export function StartModal({
               fontSize: "var(--font-body)",
               lineHeight: "var(--line-body)",
               outline: "none",
-              boxShadow:
-                focused === "textarea" ? "0 0 0 2px var(--accent)" : "none",
+              ...focusRing(focused === "textarea"),
             }}
           />
         </div>

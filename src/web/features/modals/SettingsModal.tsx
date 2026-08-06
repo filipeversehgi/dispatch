@@ -29,6 +29,7 @@ import {
 } from "../../lib/api.js";
 import { Button } from "../../primitives/Button.js";
 import { Field } from "../../primitives/Field.js";
+import { focusRing } from "../../primitives/focus-ring.js";
 import { IconButton } from "../../primitives/IconButton.js";
 import { Modal, type ModalControl } from "../../primitives/Modal.js";
 import { Notice } from "../../primitives/Notice.js";
@@ -246,9 +247,6 @@ const MULTI_COPY: Record<
     emptyText: "No teams found",
   },
 };
-
-const focusRing = (on: boolean): string =>
-  on ? "0 0 0 2px var(--accent)" : "none";
 
 type PreviewState =
   | { status: "counting" }
@@ -489,7 +487,7 @@ function FiltersTabSection({
                       accentColor: "var(--accent)",
                       borderRadius: "var(--radius)",
                       outline: "none",
-                      boxShadow: focusRing(cycleFocus),
+                      ...focusRing(cycleFocus),
                       flex: "0 0 auto",
                     }}
                   />
@@ -603,7 +601,7 @@ function FiltersTabSection({
                   accentColor: "var(--accent)",
                   borderRadius: "var(--radius)",
                   outline: "none",
-                  boxShadow: focusRing(activeFocus),
+                  ...focusRing(activeFocus),
                   flex: "0 0 auto",
                 }}
               />
@@ -1205,7 +1203,7 @@ function CleanupTabSection({ cleanupTab }: CleanupTabSectionProps) {
             fontSize: "var(--font-body)",
             lineHeight: "var(--line-body)",
             outline: "none",
-            boxShadow: focusRing(focused),
+            ...focusRing(focused),
           }}
         />
         <span
