@@ -292,9 +292,7 @@ export function SyncStrip({
                 onClick={onOpenInbox}
                 style={{
                   color: inboxOpen ? "var(--accent)" : "var(--text-muted)",
-                  ...(inboxOpen
-                    ? { background: "var(--surface-card-hover)" }
-                    : {}),
+                  ...(inboxOpen ? { background: activeSegmentTint } : {}),
                 }}
               >
                 <Inbox size={16} />
