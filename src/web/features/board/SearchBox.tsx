@@ -9,6 +9,7 @@ import {
 import { searchCards } from "../../lib/api.js";
 import { CAROUSEL_QUERY, useMediaQuery } from "../../hooks/useMediaQuery.js";
 import { Field } from "../../primitives/Field.js";
+import { focusRing } from "../../primitives/focus-ring.js";
 import { IconButton } from "../../primitives/IconButton.js";
 import { COLUMN_ACCENT, COLUMN_LABELS } from "./column-meta.js";
 
@@ -189,7 +190,7 @@ export function SearchBox({
     fontSize: "var(--font-label)",
     lineHeight: "var(--line-label)",
     outline: "none",
-    boxShadow: inputFocused ? "0 0 0 2px var(--accent)" : "none",
+    ...focusRing(inputFocused),
   } as const;
 
   const inputField = (

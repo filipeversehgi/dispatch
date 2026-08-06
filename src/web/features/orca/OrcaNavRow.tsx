@@ -4,6 +4,7 @@ import type { Card as CardModel } from "../../../shared/types.js";
 import { useLastOpened } from "../../hooks/useUnseenActivity.js";
 import { deriveShowDot } from "../../lib/card-badges.js";
 import { Field } from "../../primitives/Field.js";
+import { focusRing } from "../../primitives/focus-ring.js";
 import { SourceBadge } from "../badges/index.js";
 import {
   COLUMN_ACCENT,
@@ -71,7 +72,7 @@ export function OrcaNavRow({ card, selected, onSelect }: OrcaNavRowProps) {
           ? "2px solid var(--accent)"
           : "2px solid transparent",
         background: hover ? "var(--surface-card-hover)" : "transparent",
-        boxShadow: focused ? "0 0 0 2px var(--accent)" : "none",
+        ...focusRing(focused),
         cursor: "pointer",
       }}
     >

@@ -8,6 +8,7 @@ import {
 } from "../../lib/api.js";
 import { Button } from "../../primitives/Button.js";
 import { Field } from "../../primitives/Field.js";
+import { focusRing } from "../../primitives/focus-ring.js";
 import { Glyph } from "../../primitives/Glyph.js";
 import { Notice } from "../../primitives/Notice.js";
 import { WorkspaceAdd } from "../workspaces/index.js";
@@ -231,9 +232,7 @@ export function FirstRunSetup({
                     fontSize: "var(--font-body)",
                     lineHeight: "var(--line-body)",
                     outline: "none",
-                    boxShadow: inputFocused
-                      ? "0 0 0 2px var(--accent)"
-                      : "none",
+                    ...focusRing(inputFocused),
                     userSelect: "text",
                   }}
                 />
