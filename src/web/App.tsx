@@ -12,7 +12,7 @@ import {
 import { useTransitionNotifications } from "./hooks/useTransitionNotifications.js";
 import { AppShell } from "./AppShell.js";
 import { SyncStrip } from "./features/sync/index.js";
-import { Glyph } from "./primitives/Glyph.js";
+import { Glyph, wordmarkStyle } from "./primitives/Glyph.js";
 import {
   actionablePinnedCard,
   Board,
@@ -67,15 +67,7 @@ function BootScreen({ connection }: { connection: ConnectionStatus }) {
         }}
       >
         <Glyph size={44} />
-        <span
-          style={{
-            fontWeight: 800,
-            fontSize: "var(--font-display)",
-            letterSpacing: "0.18em",
-          }}
-        >
-          DISPATCH
-        </span>
+        <span style={wordmarkStyle}>DISPATCH</span>
       </div>
       <div
         style={{

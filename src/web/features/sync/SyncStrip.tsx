@@ -8,7 +8,7 @@ import {
   Settings,
 } from "lucide-react";
 import type { ConnectionStatus } from "../../hooks/useBoardStream.js";
-import { Glyph } from "../../primitives/Glyph.js";
+import { Glyph, wordmarkStyle } from "../../primitives/Glyph.js";
 import { IconButton } from "../../primitives/IconButton.js";
 
 interface SyncStripProps {
@@ -137,15 +137,7 @@ export function SyncStrip({
         }}
       >
         <Glyph size={16} />
-        <span
-          style={{
-            fontWeight: 800,
-            fontSize: "12px",
-            letterSpacing: "0.18em",
-          }}
-        >
-          DISPATCH
-        </span>
+        <span style={wordmarkStyle}>DISPATCH</span>
       </div>
       <div
         style={{

@@ -1,5 +1,11 @@
 import type { CSSProperties } from "react";
 
+export const wordmarkStyle: CSSProperties = {
+  fontSize: "var(--font-display)",
+  fontWeight: "var(--weight-semibold)",
+  letterSpacing: "0.18em",
+};
+
 interface GlyphProps {
   size?: number;
   title?: string;

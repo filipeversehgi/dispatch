@@ -9,7 +9,7 @@ import {
 import { Button } from "../../primitives/Button.js";
 import { Field } from "../../primitives/Field.js";
 import { focusRing } from "../../primitives/focus-ring.js";
-import { Glyph } from "../../primitives/Glyph.js";
+import { Glyph, wordmarkStyle } from "../../primitives/Glyph.js";
 import { Notice } from "../../primitives/Notice.js";
 import { WorkspaceAdd } from "../workspaces/index.js";
 
@@ -159,15 +159,7 @@ export function FirstRunSetup({
           }}
         >
           <Glyph size={44} />
-          <span
-            style={{
-              fontWeight: 800,
-              fontSize: "var(--font-display)",
-              letterSpacing: "0.18em",
-            }}
-          >
-            DISPATCH
-          </span>
+          <span style={wordmarkStyle}>DISPATCH</span>
         </div>
 
         {step === "connect" ? (
