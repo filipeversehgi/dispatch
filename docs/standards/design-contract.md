@@ -68,6 +68,13 @@ tight padding exactly as today. The underlying 4/8/16/24/32/48 spacing scale its
 `--space-xs` (4px) through `--space-3xl` (48px) — only the rule for how reading surfaces use it
 changes.
 
+Reading surfaces also get slightly looser line spacing, which is the other half of "read rather than
+scanned":
+
+| Token or rule                                        | Value | Checked at                                | Note                                                                                                                                                                                                                       |
+| ---------------------------------------------------- | ----- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Body line-height on reading surfaces — `--line-body` | 1.6   | >=1600px, 1024-1599px, 768-1023px, <768px | Up from 1.5, and only inside the detail-panel and modal body scroll regions. The token is unchanged everywhere else, so scan surfaces keep their current tightness. Checked against real multi-paragraph description copy. |
+
 ## Radius
 
 | Token or rule                                                                 | Value                | Checked at                                | Note                                                                                                                                                                                                                                                                                                                                                                                       |
