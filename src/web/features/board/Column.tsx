@@ -320,7 +320,7 @@ export function Column({
           gap: "var(--space-xs)",
           background: "var(--surface-column)",
           fontSize: "var(--font-label)",
-          fontWeight: "var(--weight-semibold)",
+          fontWeight: "var(--weight-medium)",
           lineHeight: "var(--line-label)",
           letterSpacing: "0.04em",
           color: "var(--text-muted)",
@@ -341,7 +341,7 @@ export function Column({
             color: COLUMN_ACCENT[column],
             borderRadius: "var(--radius)",
             padding: "0 var(--space-xs)",
-            fontSize: "var(--font-label)",
+            fontSize: "var(--font-micro)",
           }}
         >
           {column === "done" && doneTotal != null ? doneTotal : cards.length}
@@ -453,7 +453,7 @@ function CleanedDivider() {
       <span
         style={{
           fontSize: "var(--font-label)",
-          fontWeight: "var(--weight-semibold)",
+          fontWeight: "var(--weight-medium)",
           lineHeight: "var(--line-label)",
           color: "var(--text-muted)",
           flex: "0 0 auto",

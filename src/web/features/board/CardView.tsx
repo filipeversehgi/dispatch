@@ -371,7 +371,7 @@ export function CardView({
           )}
           <span
             style={{
-              fontSize: "var(--font-label)",
+              fontSize: "var(--font-micro)",
               lineHeight: "var(--line-label)",
               color: "var(--text-muted)",
               minWidth: 0,

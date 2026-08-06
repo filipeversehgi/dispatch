@@ -161,6 +161,7 @@ export function SyncStrip({
             display: "flex",
             alignItems: "center",
             color: disconnected ? "var(--destructive)" : "var(--text-muted)",
+            fontWeight: "var(--weight-medium)",
           }}
         >
           <span

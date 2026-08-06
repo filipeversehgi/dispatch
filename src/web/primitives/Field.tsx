@@ -16,6 +16,7 @@ const labelStyle: CSSProperties = {
 const monoLabelStyle: CSSProperties = {
   ...labelStyle,
   fontFamily: "var(--font-mono)",
+  fontSize: "var(--font-micro)",
 };
 
 export function Field({ children, mono, style }: FieldProps) {
