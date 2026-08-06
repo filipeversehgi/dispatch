@@ -3,16 +3,19 @@
  * NOT test code): imports no test framework, asserts nothing about app runtime
  * behavior, and lives outside src/ — the same category as eslint.config.ts.
  *
- * It answers one question as closed-set arithmetic instead of a read-through:
- * has every invariant ID in the frozen baseline reached a DURABLE home? A
- * durable home is an ID appearing inside a JSDoc block (/** ... *\/) in
- * src/**\/*.{ts,tsx} OR anywhere in docs/ARCHITECTURE.md. An ID sitting only in
- * a // body/line comment does NOT count as homed — that JSDoc-vs-body-comment
- * distinction (Pattern 2 in 10-RESEARCH.md) is what keeps the gate meaningful
- * while the original body comments still exist.
+ * It answers two questions as closed-set arithmetic instead of a read-through:
+ *
+ * 1. Has every invariant ID in the frozen baseline reached a DURABLE home? A
+ *    durable home is an ID appearing inside a JSDoc block (/** ... *\/) in
+ *    src/**\/*.{ts,tsx} OR anywhere in docs/ARCHITECTURE.md. An ID sitting only in
+ *    a // body/line comment does NOT count as homed — that JSDoc-vs-body-comment
+ *    distinction (Pattern 2 in 10-RESEARCH.md) is what keeps the gate meaningful
+ *    while the original body comments still exist.
+ * 2. Has any design literal this project deliberately retired come back into
+ *    src/**\/*.{ts,tsx}? See RETIRED_PATTERNS below.
  *
  * Modes:
- *   node scripts/check-invariants.mjs               diff + exit 0 iff MISSING, ORPHAN, and EXTRA are ALL empty
+ *   node scripts/check-invariants.mjs               diff + exit 0 iff MISSING, ORPHAN, EXTRA, and RETIRED are ALL empty
  *   node scripts/check-invariants.mjs --generate-baseline   print sorted labeled IDs (src + docs)
  *
  * The bare `⏺` protocol glyph is DELIBERATELY excluded from ID_RE: it is a
@@ -60,6 +63,55 @@ function walkSrc(dir) {
     else if (/\.(ts|tsx)$/.test(full)) out.push(full);
   }
   return out;
+}
+
+/**
+ * Design literals this project deliberately retired during the Phase 84 design-system
+ * migration, each replaced by a single named definition. `pattern` is a plain substring, not a
+ * regex — every one of these literals contains regex metacharacters, and a substring
+ * `includes()` check is both simpler and impossible to get subtly wrong.
+ */
+const RETIRED_PATTERNS = [
+  {
+    id: "NEW-15",
+    pattern: "0 0 0 2px var(--accent)",
+    replacement: "focusRing() in src/web/primitives/focus-ring.ts",
+  },
+  {
+    id: "NEW-16",
+    pattern: "0 6px 16px rgba(0,0,0,0.45)",
+    replacement: "var(--shadow-float) in src/web/styles/tokens.css",
+  },
+  {
+    id: "NEW-17",
+    pattern: "fontWeight: 800",
+    replacement: "wordmarkStyle in src/web/primitives/Glyph.tsx",
+  },
+];
+
+/**
+ * Find every line under src/**\/*.{ts,tsx} that still contains a retired design literal.
+ * @remarks Scans comments as well as code, deliberately: a comment that reproduces a retired
+ * literal is exactly how the pattern gets copied back into real code by the next reader. Only
+ * `.ts`/`.tsx` are scanned (via `walkSrc`), so `src/web/styles/tokens.css` can remain the
+ * canonical home of the float-shadow value this gate otherwise forbids.
+ * @returns Violation report lines, one per matching line.
+ */
+function checkRetiredPatterns() {
+  const violations = [];
+  for (const file of walkSrc(SRC_DIR)) {
+    const lines = readFileSync(file, "utf8").split("\n");
+    lines.forEach((line, i) => {
+      for (const { id, pattern, replacement } of RETIRED_PATTERNS) {
+        if (line.includes(pattern)) {
+          violations.push(
+            `${file}:${i + 1}: retired pattern ${id} — use ${replacement}`,
+          );
+        }
+      }
+    });
+  }
+  return violations;
 }
 
 /**
@@ -155,13 +207,16 @@ function generateBaseline() {
 }
 
 /**
- * Run the invariant-home diff and set the process exit code.
+ * Run the invariant-home diff plus the retired-pattern scan and set the process exit code.
  * @remarks All three diff legs gate the exit, not just MISSING: in a
  * frozen-baseline world an EXTRA (homed but unbaselined — a typo'd ID in docs
  * or an unratified new ID in JSDoc) and an ORPHAN (present in src but
  * unbaselined) are always defects, and an informational-only leg would let
- * them accumulate silently through the body-comment deletion phases.
- * @returns Nothing; exits 0 iff MISSING, ORPHAN, and EXTRA are all empty.
+ * them accumulate silently through the body-comment deletion phases. The
+ * retired-pattern leg is independent of the ID-baseline arithmetic above — a
+ * design literal coming back is a defect regardless of whether any invariant
+ * ID also moved.
+ * @returns Nothing; exits 0 iff MISSING, ORPHAN, EXTRA, and RETIRED are all empty.
  */
 function run() {
   const home = new Set();
@@ -179,17 +234,23 @@ function run() {
   const missing = diffSorted(baseline, home);
   const orphan = diffSorted(present, baseline);
   const extra = diffSorted(home, baseline);
+  const retired = checkRetiredPatterns();
 
   report("MISSING (baseline - home)", missing);
   report("ORPHAN  (present - baseline)", orphan);
   report("EXTRA   (home - baseline)", extra);
+  report("RETIRED (design literals that came back)", retired);
 
-  const defects = missing.length + orphan.length + extra.length;
+  const defects =
+    missing.length + orphan.length + extra.length + retired.length;
   console.log(
     `\n${defects === 0 ? "PASS" : "FAIL"}: ${baseline.size - missing.length}/${baseline.size} invariants homed` +
       (missing.length ? ` (${missing.length} missing a home)` : "") +
       (orphan.length || extra.length
         ? ` (${orphan.length} orphan, ${extra.length} extra — unbaselined IDs)`
+        : "") +
+      (retired.length
+        ? ` (${retired.length} retired pattern(s) reappeared)`
         : ""),
   );
   process.exit(defects === 0 ? 0 : 1);
