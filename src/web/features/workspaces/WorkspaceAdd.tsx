@@ -1,9 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Button } from "../../primitives/Button.js";
+import { focusRing } from "../../primitives/focus-ring.js";
 import { FolderBrowserModal } from "./FolderBrowserModal.js";
-
-const focusRing = (on: boolean): string =>
-  on ? "0 0 0 2px var(--accent)" : "none";
 
 interface WorkspaceAddProps {
   onAdd: (path: string) => Promise<string | null>;
@@ -90,7 +88,7 @@ export function WorkspaceAdd({
             fontSize: "var(--font-label)",
             lineHeight: "var(--line-label)",
             outline: "none",
-            boxShadow: focusRing(inputFocus),
+            ...focusRing(inputFocus),
           }}
         />
       </div>
