@@ -225,7 +225,7 @@ export function SearchBox({
         }}
         onKeyDown={handleKeyDown}
         onFocus={(event) => {
-          setInputFocused(true);
+          setInputFocused(event.currentTarget.matches(":focus-visible"));
           setDismissed(false);
           setAnchorRect(event.currentTarget.getBoundingClientRect());
         }}

@@ -41,7 +41,9 @@ export function InboxToolbar({
         type="text"
         value={search}
         onChange={(e) => onSearchChange(e.target.value)}
-        onFocus={() => setSearchFocus(true)}
+        onFocus={(event) =>
+          setSearchFocus(event.currentTarget.matches(":focus-visible"))
+        }
         onBlur={() => setSearchFocus(false)}
         placeholder="Search inbox…"
         aria-label="Search inbox"
