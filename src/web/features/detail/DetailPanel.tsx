@@ -238,6 +238,7 @@ export function DetailPanel({
     const node = asideRef.current;
     if (node != null) {
       node.style.width = "var(--panel-width)";
+      setMeasuredWidth(node.getBoundingClientRect().width);
     }
     clearPanelWidth();
   }
