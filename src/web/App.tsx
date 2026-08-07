@@ -15,6 +15,7 @@ import { SyncStrip } from "./features/sync/index.js";
 import { Glyph, wordmarkStyle } from "./primitives/Glyph.js";
 import {
   actionablePinnedCard,
+  actionablePinnedMembers,
   Board,
   inboxWaitingCount,
   membersOf,
@@ -143,6 +144,8 @@ export function App() {
         : pinned?.card.id === selectedCardId
           ? pinned.members
           : [];
+  const membersActionable =
+    selectedCardInWindow || actionablePinnedMembers(selectedCardId, pinned);
 
   function selectCard(id: string | null) {
     setSelectedCardId(id);
@@ -376,6 +379,7 @@ export function App() {
           activityEvents={feed.events}
           cardIdentifiers={cardIdentifiers}
           members={selectedCardMembers}
+          membersActionable={membersActionable}
           onClose={() => {
             setSelectedCardId(null);
             setPinned(null);

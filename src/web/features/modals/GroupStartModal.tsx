@@ -201,7 +201,7 @@ export function GroupStartModal({
         >
           <Field>{`Members (${members.length})`}</Field>
           {members.map((member) => (
-            <MemberRow key={member.id} member={member} />
+            <MemberRow key={member.id} member={member} actionable={true} />
           ))}
         </div>
 

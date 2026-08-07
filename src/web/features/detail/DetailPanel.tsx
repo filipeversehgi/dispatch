@@ -28,6 +28,7 @@ interface DetailPanelProps {
   activityEvents?: ActivityEvent[];
   cardIdentifiers?: Record<string, string>;
   members?: CardModel[];
+  membersActionable: boolean;
   onClose: () => void;
   onStartRequest?: (id: string) => void;
   onCleanupRequest?: (id: string) => void;
@@ -41,6 +42,7 @@ export function DetailPanel({
   activityEvents,
   cardIdentifiers,
   members,
+  membersActionable,
   onClose,
   onStartRequest,
   onCleanupRequest,
@@ -446,7 +448,11 @@ export function DetailPanel({
                           overflowY: "auto",
                         }}
                       >
-                        <ReferenceBlocks card={c} members={members} />
+                        <ReferenceBlocks
+                          card={c}
+                          members={members}
+                          membersActionable={membersActionable}
+                        />
                         {c && (
                           <CardTimeline
                             cardId={c.id}
@@ -464,7 +470,11 @@ export function DetailPanel({
                         overflowY: "auto",
                       }}
                     >
-                      <ReferenceBlocks card={c} members={members} />
+                      <ReferenceBlocks
+                        card={c}
+                        members={members}
+                        membersActionable={membersActionable}
+                      />
                       {c && (
                         <CardTimeline
                           cardId={c.id}
