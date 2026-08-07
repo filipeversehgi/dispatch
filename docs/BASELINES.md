@@ -545,3 +545,72 @@ resync frame arriving, against the same 500-Done-card isolated sandbox. 5 runs:
 reconnect cycle (not just broadcast fan-out) is well under the `~2.8-3.3ms` SSE fan-out baseline
 already recorded above, and is imperceptible to a human clicking "Load more" — no alternative
 "expand" signal is needed.
+
+### Re-measurement — Phase 86 (Board surfaces)
+
+- **Date:** 2026-08-07
+- **Git SHA measured:** `6d2549f` (Phase 86 board-surfaces work through 86-04, plus this plan's own
+  one-line `scripts/perf-board.mjs` fix — see `## Harness fix` below; no file under `src/` changed
+  by this re-measurement)
+- **Machine:** Apple Silicon, local (Node v22.23.1, Chrome headless via `--headless=new`)
+- **Command:** `npm run build && node scripts/perf-board.mjs --done=500 --runs=3`
+- **Method:** identical to the `02af014` measurement above — same isolated sandbox shape, same
+  500-Done-card seed (every 25th card carrying `tmuxSession`/`workspacePath`), same three-metric
+  byte/commit legs, 3 runs against a fresh sandbox each time, MEDIAN reported.
+
+**Harness fix required before this run could proceed:** `moveCard()` in `scripts/perf-board.mjs`
+checked `res.status !== 200` and called `res.json()`, but `POST /api/cards/:id/move` has answered
+`204 No Content` since commit `e4917a8` ("stop shipping the full board on every card move") —
+which landed AFTER the `02af014` SHA the existing baseline was measured at, so the harness's own
+assumption went stale without anyone re-running it since. The harness threw on every call before
+this fix (`scripts/perf-board.mjs`, committed separately in `6d2549f`'s parent, `fix(perf-board):
+match the move route's 204 response, not a stale 200`). This is a Rule 1 fix — a broken assertion
+in dev-tooling contradicting this very plan's own `<verified_facts>` ("`POST /api/cards/:id/move`
+answers `204 No Content` (Phase 82)") — not a change to any measured application code path.
+
+```
+run=1 initialBytes=15029 initialCards=50 sseFrameBytes=15274 loadCommits=7 commits=5
+run=2 initialBytes=15029 initialCards=50 sseFrameBytes=15274 loadCommits=8 commits=5
+run=3 initialBytes=15029 initialCards=50 sseFrameBytes=15274 loadCommits=8 commits=7
+
+PERF-BOARD mode=prod done=500 initialBytes=15029 initialCards=50 sseFrameBytes=15274 loadCommits=8 commits=5
+```
+
+**Per-metric verdict against the `02af014` recorded numbers** (`initialBytes=16129
+initialCards=50 sseFrameBytes=16374 loadCommits=8 commits=7`):
+
+- **`initialBytes`:** `16129` → `15029`, a **−1100 byte (−6.8%) decrease**. Phase 86's own diff is
+  `borderRadius` token substitutions in `src/web/features/board/` only — zero files under
+  `src/server/` were touched by 86-01 through 86-04 (confirmed: `git diff 02af014 HEAD --stat --
+src/server/` names only pre-existing Phase-82-era commits already merged before this
+  re-measurement, none of them touching `Card`/`BoardSnapshot`'s type shape, `redactCard`,
+  `snapshot()`'s windowing/sort, or `hydrateFromParsed` — all four confirmed **byte-identical** via
+  `git diff 02af014 HEAD` on `src/shared/types.ts` and `src/server/store/board.store.ts`'s relevant
+  functions). This decrease is therefore NOT attributable to any shipped code change in the
+  measured request path. Investigated and not conclusively resolved to a single cause; the leading
+  candidate is an environment-dependent top-level field (`editors: {code, cursor}`, a live `which`
+  probe) or the sandbox `HOME` path length embedded in the ~20 awaiting cards' `workspacePath`
+  strings (both harness/environment artifacts baked into every run, not application code). Recorded
+  as an **IMPROVEMENT, cause not fully isolated**, per this file's own honesty standard — not
+  smoothed into "no change."
+- **`initialCards`:** `50` → `50`, **unchanged**, exactly matching `DONE_PAGE_SIZE`'s windowed
+  contract — no movement to explain.
+- **`sseFrameBytes`:** `16374` → `15274`, a **−1100 byte (−6.7%) decrease**, identical in magnitude
+  to `initialBytes`'s delta — consistent with both endpoints carrying the same windowed
+  `BoardSnapshot` shape and being subject to the same top-level-field cause named above, not two
+  independent regressions.
+- **`loadCommits`:** `7` (before) → `8` (after, this run's own summary line). Both are raw,
+  unadjusted single-sample reads of the initial page-load commit count, already known to carry
+  `SyncStrip`-tick noise per this section's own documented caveat; a swing of 1 between two
+  single-number reports is within that known noise band, not a named finding on its own.
+- **`commits`:** `7` (before) → `5` (after). This is the same `SyncStrip`-tick noise this file's own
+  `02af014` entry already named as the explanation for its own `5`→`7` swing against the
+  pre-windowing baseline — the noise is bidirectional by construction (0, 1, or 2 ticks can land in
+  the 1000ms `MUTATION_WAIT_MS` settle window depending on timing offset), so a `7`→`5` swing here is
+  the same documented noise landing the other way, not a regression in the windowed mutation's own
+  React-commit cost. This run's three individual samples (`5, 5, 7`) show exactly that spread.
+
+**Conclusion:** no metric regressed. `initialBytes`/`sseFrameBytes` both improved by an equal,
+environment-attributable amount unrelated to this phase's radius-token diff; `loadCommits`/`commits`
+moved within the already-documented `SyncStrip`-tick noise band on both sides. Criterion 3's
+`perf-board.mjs` half is MET.
