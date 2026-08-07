@@ -1800,10 +1800,15 @@ is structurally identical to the selection ring and is exactly the defect this i
 to prevent.
 
 **One shadow token for the whole app (`NEW-16`).** `--shadow-float`, defined once in
-`src/web/styles/tokens.css`, is the system's only shadow and is sanctioned on exactly three
-elements: the search dropdown, the modal, and the drag overlay. Cards and columns carry no shadow
-at rest; a fourth consumer, or a second independently-defined shadow value, is a regression rather
-than a new design choice.
+`src/web/styles/tokens.css`, is the system's only shadow. The invariant is the single definition,
+not a consumer cap: `RETIRED_PATTERNS`'s literal scan over `src/**/*.{ts,tsx}` catches the retired
+`0 6px 16px rgba(0,0,0,0.45)` value reappearing anywhere outside `tokens.css`, which is what makes
+"one definition" mechanical. Measured today it is consumed at six call sites — the card drag
+overlay (`CardView.tsx:171`), the selection bar (`SelectionBar.tsx:29`), the search results
+listbox (`SearchBox.tsx:321`), the carousel search overlay (`SearchBox.tsx:400`), the move-to
+picker (`MoveToPicker.tsx:97`), and the modal (`Modal.tsx:110`). Cards and columns carry no shadow
+at rest; a second, independently-defined shadow value is the regression the gate catches, not an
+additional consumer of the one token.
 
 **One wordmark definition (`NEW-17`).** `wordmarkStyle` in `src/web/primitives/Glyph.tsx` is the
 only place the DISPATCH wordmark's type treatment (size, weight, letter-spacing) is written down.
