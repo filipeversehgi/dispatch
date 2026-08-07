@@ -12,6 +12,7 @@ import {
   setPanelWidth,
   usePanelWidth,
 } from "../../hooks/usePanelWidth.js";
+import { focusRing } from "../../primitives/focus-ring.js";
 import { CardTimeline } from "./CardTimeline.js";
 import { PanelHeader } from "./PanelHeader.js";
 import { PrRow } from "./PrRow.js";
@@ -20,6 +21,14 @@ import { UnknownProbeRow } from "./UnknownProbeRow.js";
 import { ReferenceBlocks } from "./ReferenceBlocks.js";
 import { SessionLostSection } from "./SessionLostSection.js";
 import { TerminalRegion } from "./TerminalRegion.js";
+
+const PANEL_MIN_WIDTH_PX = 360;
+const PANEL_MAX_WIDTH_RATIO = 0.9;
+const PANEL_KEYBOARD_STEP_PX = 16;
+
+function commitPanelWidth(px: number): void {
+  setPanelWidth(px);
+}
 
 interface DetailPanelProps {
   card: CardModel | null;
@@ -109,10 +118,50 @@ export function DetailPanel({
   const cleanupDragRef = useRef<(() => void) | null>(null);
   const [hoveringHandle, setHoveringHandle] = useState(false);
   const [resizing, setResizing] = useState(false);
+  const [handleFocused, setHandleFocused] = useState(false);
+  const [measuredWidth, setMeasuredWidth] = useState<number | null>(null);
+  const [viewportWidth, setViewportWidth] = useState<number>(
+    () => window.innerWidth,
+  );
 
   useEffect(() => {
     return () => cleanupDragRef.current?.();
   }, []);
+
+  useEffect(() => {
+    if (resizing) return;
+    const node = asideRef.current;
+    if (node == null) return;
+    const observer = new ResizeObserver(() => {
+      setMeasuredWidth(node.getBoundingClientRect().width);
+      setViewportWidth(window.innerWidth);
+    });
+    observer.observe(node);
+    observer.observe(document.documentElement);
+    return () => observer.disconnect();
+  }, [resizing]);
+
+  const maxWidthPx = viewportWidth * PANEL_MAX_WIDTH_RATIO;
+  const rawWidthPx = persistedWidth ?? measuredWidth;
+  const currentWidthPx =
+    rawWidthPx != null
+      ? Math.min(maxWidthPx, Math.max(PANEL_MIN_WIDTH_PX, rawWidthPx))
+      : null;
+
+  function handleResizeKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const node = asideRef.current;
+    if (node == null) return;
+    const base = currentWidthPx ?? node.getBoundingClientRect().width;
+    const delta =
+      e.key === "ArrowLeft" ? PANEL_KEYBOARD_STEP_PX : -PANEL_KEYBOARD_STEP_PX;
+    const next = Math.min(
+      maxWidthPx,
+      Math.max(PANEL_MIN_WIDTH_PX, base + delta),
+    );
+    commitPanelWidth(next);
+  }
 
   function handleResizePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (e.button !== 0) return;
@@ -124,7 +173,7 @@ export function DetailPanel({
     const startX = e.clientX;
     const startWidth = node.getBoundingClientRect().width;
     const preDragStyleWidth = node.style.width;
-    const maxPx = window.innerWidth * 0.9;
+    const maxPx = window.innerWidth * PANEL_MAX_WIDTH_RATIO;
     const coarseGesture = e.pointerType !== "mouse";
     setResizing(true);
     document.body.style.cursor = "col-resize";
@@ -151,7 +200,7 @@ export function DetailPanel({
     function handlePointerMove(ev: PointerEvent) {
       const next = Math.min(
         maxPx,
-        Math.max(360, startWidth + (startX - ev.clientX)),
+        Math.max(PANEL_MIN_WIDTH_PX, startWidth + (startX - ev.clientX)),
       );
       node!.style.width = `${next}px`;
     }
@@ -165,9 +214,12 @@ export function DetailPanel({
         node!.style.width = preDragStyleWidth;
         return;
       }
-      const finalWidth = Math.min(maxPx, Math.max(360, startWidth + delta));
-      node!.style.width = `clamp(360px, ${finalWidth}px, 90vw)`;
-      setPanelWidth(finalWidth);
+      const finalWidth = Math.min(
+        maxPx,
+        Math.max(PANEL_MIN_WIDTH_PX, startWidth + delta),
+      );
+      node!.style.width = `clamp(${PANEL_MIN_WIDTH_PX}px, ${finalWidth}px, ${PANEL_MAX_WIDTH_RATIO * 100}vw)`;
+      commitPanelWidth(finalWidth);
     }
 
     function handlePointerCancel() {
@@ -310,7 +362,7 @@ export function DetailPanel({
             : effectiveFullscreen
               ? "100vw"
               : persistedWidth != null
-                ? `clamp(360px, ${persistedWidth}px, 90vw)`
+                ? `clamp(${PANEL_MIN_WIDTH_PX}px, ${persistedWidth}px, ${PANEL_MAX_WIDTH_RATIO * 100}vw)`
                 : "var(--panel-width)",
           maxWidth: "100vw",
           background: "var(--surface-column)",
@@ -329,12 +381,23 @@ export function DetailPanel({
       >
         {!docked && !effectiveFullscreen && (
           <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize panel"
+            aria-valuenow={
+              currentWidthPx != null ? Math.round(currentWidthPx) : undefined
+            }
+            aria-valuemin={PANEL_MIN_WIDTH_PX}
+            aria-valuemax={Math.round(maxWidthPx)}
+            tabIndex={0}
             onPointerDown={handleResizePointerDown}
             onClick={(e) => e.stopPropagation()}
             onDoubleClick={handleResizeDoubleClick}
             onPointerEnter={() => setHoveringHandle(true)}
             onPointerLeave={() => setHoveringHandle(false)}
-            aria-label="Resize panel"
+            onKeyDown={handleResizeKeyDown}
+            onFocus={() => setHandleFocused(true)}
+            onBlur={() => setHandleFocused(false)}
             style={{
               position: "absolute",
               left: 0,
@@ -349,6 +412,7 @@ export function DetailPanel({
                 hoveringHandle || resizing
                   ? "2px solid var(--accent)"
                   : "2px solid transparent",
+              ...focusRing(handleFocused),
             }}
           >
             {isCoarsePointer && (

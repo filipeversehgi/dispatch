@@ -53,11 +53,13 @@ export function clearPanelWidth(): void {
  * resizes or resets.
  *
  * @remarks
- * The width commits from `handleResizePointerDown`'s `pointerup` handler for both mouse and
- * touch pointers. Touch reaches `pointerup` only because the handle declares
+ * The width commits from three paths: `handleResizePointerDown`'s `pointerup` handler for both
+ * mouse and touch pointers, the resize handle's arrow-key handler, and `clearPanelWidth` on
+ * double-click reset. Touch reaches `pointerup` only because the handle declares
  * `touch-action: none`: without it the browser claims the finger drag as a page pan and fires
  * `pointercancel`, which aborts the drag and restores the pre-drag width instead of committing
- * it. There is still no keyboard path.
+ * it. The keyboard path commits through this same store, so a keyboard resize persists
+ * identically to a pointer one.
  *
  * @see docs/ARCHITECTURE.md#panel-iframe-identity
  */
