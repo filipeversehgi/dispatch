@@ -95,6 +95,10 @@ export function App() {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [pinned, setPinned] = useState<PinnedCard | null>(null);
   const [pinnedHydrating, setPinnedHydrating] = useState(false);
+  const [pinFetchError, setPinFetchError] = useState<{
+    id: string;
+    kind: "not-found" | "network";
+  } | null>(null);
   const pinFetchGenRef = useRef(0);
   const { board, connection } = useBoardStream(doneLimit, {
     onActivity: feed.append,
@@ -146,6 +150,12 @@ export function App() {
           : [];
   const membersActionable =
     selectedCardInWindow || actionablePinnedMembers(selectedCardId, pinned);
+  const pinFetchErrorKind =
+    !selectedCardInWindow &&
+    pinFetchError != null &&
+    pinFetchError.id === selectedCardId
+      ? pinFetchError.kind
+      : null;
 
   function selectCard(id: string | null) {
     setSelectedCardId(id);
@@ -159,6 +169,31 @@ export function App() {
       });
   }
 
+  function hydratePinned(id: string) {
+    setPinnedHydrating(true);
+    const gen = ++pinFetchGenRef.current;
+    getCard(id)
+      .then((fetched) => {
+        if (gen !== pinFetchGenRef.current) return;
+        if (fetched != null) {
+          setPinned({
+            card: fetched.card,
+            kind: "hydrated",
+            members: fetched.members,
+          });
+          setPinFetchError(null);
+        } else {
+          setPinFetchError({ id, kind: "not-found" });
+        }
+        setPinnedHydrating(false);
+      })
+      .catch(() => {
+        if (gen !== pinFetchGenRef.current) return;
+        setPinFetchError({ id, kind: "network" });
+        setPinnedHydrating(false);
+      });
+  }
+
   function selectSearchResult(result: CardSearchResult) {
     setSelectedCardId(result.id);
     if (board?.cards.some((card) => card.id === result.id) === true) {
@@ -167,23 +202,7 @@ export function App() {
       return;
     }
     setPinned({ card: stubToCard(result), kind: "stub", members: [] });
-    setPinnedHydrating(true);
-    const gen = ++pinFetchGenRef.current;
-    getCard(result.id)
-      .then((fetched) => {
-        if (gen !== pinFetchGenRef.current) return;
-        if (fetched != null)
-          setPinned({
-            card: fetched.card,
-            kind: "hydrated",
-            members: fetched.members,
-          });
-        setPinnedHydrating(false);
-      })
-      .catch(() => {
-        if (gen !== pinFetchGenRef.current) return;
-        setPinnedHydrating(false);
-      });
+    hydratePinned(result.id);
   }
 
   useEffect(() => {
@@ -375,6 +394,10 @@ export function App() {
         <DetailPanel
           card={selectedCard}
           hydrating={pinnedHydrating && !selectedCardInWindow}
+          pinFetchError={pinFetchErrorKind}
+          onRetryPinFetch={() => {
+            if (selectedCardId != null) hydratePinned(selectedCardId);
+          }}
           editors={board?.editors}
           activityEvents={feed.events}
           cardIdentifiers={cardIdentifiers}

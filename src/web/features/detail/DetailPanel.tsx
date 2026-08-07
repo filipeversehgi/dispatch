@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { GripVertical } from "lucide-react";
+import { AlertTriangle, GripVertical, RotateCw } from "lucide-react";
 import type {
   ActivityEvent,
   Card as CardModel,
@@ -13,6 +13,8 @@ import {
   usePanelWidth,
 } from "../../hooks/usePanelWidth.js";
 import { focusRing } from "../../primitives/focus-ring.js";
+import { Button } from "../../primitives/Button.js";
+import { Notice } from "../../primitives/Notice.js";
 import { CardTimeline } from "./CardTimeline.js";
 import { PanelHeader } from "./PanelHeader.js";
 import { PrRow } from "./PrRow.js";
@@ -33,6 +35,8 @@ function commitPanelWidth(px: number): void {
 interface DetailPanelProps {
   card: CardModel | null;
   hydrating?: boolean;
+  pinFetchError?: "not-found" | "network" | null;
+  onRetryPinFetch?: () => void;
   editors?: { code: boolean; cursor: boolean };
   activityEvents?: ActivityEvent[];
   cardIdentifiers?: Record<string, string>;
@@ -47,6 +51,8 @@ interface DetailPanelProps {
 export function DetailPanel({
   card,
   hydrating = false,
+  pinFetchError = null,
+  onRetryPinFetch,
   editors,
   activityEvents,
   cardIdentifiers,
@@ -500,6 +506,53 @@ export function DetailPanel({
                   }}
                 >
                   Loading ticket…
+                </div>
+              ) : pinFetchError != null ? (
+                <div
+                  className="reading-surface"
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "var(--space-lg)",
+                  }}
+                >
+                  <Notice
+                    tone="destructive"
+                    icon={
+                      <AlertTriangle
+                        size={12}
+                        strokeWidth={2}
+                        aria-hidden="true"
+                        style={{ flex: "0 0 auto" }}
+                      />
+                    }
+                    label={
+                      pinFetchError === "not-found"
+                        ? "This ticket could not be found"
+                        : "Couldn't load this ticket"
+                    }
+                  />
+                  <div
+                    style={{
+                      fontSize: "var(--font-label)",
+                      lineHeight: "var(--line-label)",
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    {pinFetchError === "not-found"
+                      ? "It may have been deleted or moved out of range."
+                      : "Check your connection and try again."}
+                  </div>
+                  {pinFetchError === "network" && (
+                    <Button
+                      variant="secondary"
+                      onClick={onRetryPinFetch}
+                      style={{ alignSelf: "flex-start" }}
+                    >
+                      <RotateCw size={12} strokeWidth={2} aria-hidden="true" />
+                      Retry
+                    </Button>
+                  )}
                 </div>
               ) : (
                 <>
