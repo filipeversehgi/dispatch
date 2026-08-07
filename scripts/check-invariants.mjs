@@ -40,16 +40,17 @@ const ID_RE =
  * size so an accidentally emptied/truncated baseline (or an unratified
  * regeneration) can never silently disarm the gate into `PASS: 0/0`. Bump this
  * ONLY together with a deliberate, human-ratified baseline regeneration.
- * @remarks Moved from 118 to 119 for the deliberate one-ID app-shell zone
- * re-freeze (`NEW-18`) — see docs/ARCHITECTURE.md#app-shell-zones.
+ * @remarks Moved from 119 to 120 for the deliberate one-ID board reading-rhythm
+ * re-freeze (`NEW-19`) — see docs/ARCHITECTURE.md#design-system-invariants.
  */
-const FROZEN_COUNT = 119;
+const FROZEN_COUNT = 120;
 
 const SRC_DIR = "src";
 const SKIP_DIR = join("src", "web", "dist");
 const DOCS_PATH = join("docs", "ARCHITECTURE.md");
 const BASELINE_PATH = join("scripts", "invariant-baseline.txt");
 const SYNC_STRIP_PATH = join("src", "web", "features", "sync", "SyncStrip.tsx");
+const BOARD_DIR = join("src", "web", "features", "board");
 
 /**
  * Recursively list every .ts/.tsx source file, skipping the built web bundle.
@@ -140,6 +141,48 @@ function checkStripPadding() {
       );
     }
   });
+  return violations;
+}
+
+/**
+ * Directory-scoped board reading-rhythm gate (`NEW-19`). Deliberately NOT a `RETIRED_PATTERNS`
+ * entry: that array scans all of `src/**`, and `.reading-surface` is legitimately used outside
+ * `board/` (`Modal.tsx`, `DetailPanel.tsx`) — a global scan would false-positive on both.
+ * @remarks Quotes are stripped from each line before matching because a `.tsx` inline-style
+ * override is written with a quoted custom-property key (`"--line-body": "1.6"`), so the raw
+ * `--line-body:` declaration form never appears verbatim — stripping `"`/`'` first normalizes
+ * that form to the same shape as a plain CSS declaration.
+ * @remarks `var(--line-body)` CONSUMPTION is deliberately permitted, not fenced: the token
+ * resolves to 1.5 globally and only the `.reading-surface` class lifts it to 1.6
+ * (`src/web/styles/tokens.css`), and `docs/standards/design-contract.md`'s Typography table
+ * names `--line-body` as the card title's own mandated line height — barring consumption would
+ * force a card-height change, which criterion 2 forbids outright.
+ * @see docs/ARCHITECTURE.md#design-system-invariants
+ * @returns Violation report lines, one per matching line; a single line if the directory is missing.
+ */
+function checkBoardReadingRhythm() {
+  if (!existsSync(BOARD_DIR)) {
+    return [
+      `${BOARD_DIR}: directory not found — NEW-19 cannot verify board surfaces`,
+    ];
+  }
+  const violations = [];
+  for (const file of walkSrc(BOARD_DIR)) {
+    const lines = readFileSync(file, "utf8").split("\n");
+    lines.forEach((line, i) => {
+      const stripped = line.replaceAll('"', "").replaceAll("'", "");
+      if (stripped.includes("reading-surface")) {
+        violations.push(
+          `${file}:${i + 1}: retired pattern NEW-19 — the .reading-surface class is barred from src/web/features/board/`,
+        );
+      }
+      if (stripped.includes("--line-body:")) {
+        violations.push(
+          `${file}:${i + 1}: retired pattern NEW-19 — a local --line-body redefinition is barred from src/web/features/board/`,
+        );
+      }
+    });
+  }
   return violations;
 }
 
@@ -236,19 +279,22 @@ function generateBaseline() {
 }
 
 /**
- * Run the invariant-home diff, the global retired-pattern scan, and the file-scoped
- * strip-padding check, then set the process exit code.
- * @remarks All three diff legs gate the exit, not just MISSING: in a
+ * Run the invariant-home diff, the global retired-pattern scan, the file-scoped
+ * strip-padding check, and the directory-scoped board reading-rhythm check, then
+ * set the process exit code.
+ * @remarks All four diff legs gate the exit, not just MISSING: in a
  * frozen-baseline world an EXTRA (homed but unbaselined — a typo'd ID in docs
  * or an unratified new ID in JSDoc) and an ORPHAN (present in src but
  * unbaselined) are always defects, and an informational-only leg would let
  * them accumulate silently through the body-comment deletion phases. The
- * retired-pattern leg and the strip-padding leg are both independent of the
- * ID-baseline arithmetic above — a design literal coming back is a defect
- * regardless of whether any invariant ID also moved. The strip-padding leg
- * (`NEW-18`) is deliberately file-scoped rather than folded into
- * `RETIRED_PATTERNS`, since the same literal is legitimate in eight other files.
- * @returns Nothing; exits 0 iff MISSING, ORPHAN, EXTRA, RETIRED, and STRIP PADDING are all empty.
+ * retired-pattern leg, the strip-padding leg, and the board reading-rhythm leg
+ * are all independent of the ID-baseline arithmetic above — a design literal
+ * coming back is a defect regardless of whether any invariant ID also moved.
+ * The strip-padding leg (`NEW-18`) and the board reading-rhythm leg (`NEW-19`)
+ * are both deliberately scoped (file-scoped and directory-scoped respectively)
+ * rather than folded into `RETIRED_PATTERNS`, since each pattern is legitimate
+ * outside its own scope.
+ * @returns Nothing; exits 0 iff MISSING, ORPHAN, EXTRA, RETIRED, STRIP PADDING, and BOARD READING RHYTHM are all empty.
  */
 function run() {
   const home = new Set();
@@ -268,19 +314,22 @@ function run() {
   const extra = diffSorted(home, baseline);
   const retired = checkRetiredPatterns();
   const stripPadding = checkStripPadding();
+  const boardReadingRhythm = checkBoardReadingRhythm();
 
   report("MISSING (baseline - home)", missing);
   report("ORPHAN  (present - baseline)", orphan);
   report("EXTRA   (home - baseline)", extra);
   report("RETIRED (design literals that came back)", retired);
   report("STRIP PADDING (NEW-18)", stripPadding);
+  report("BOARD READING RHYTHM (NEW-19)", boardReadingRhythm);
 
   const defects =
     missing.length +
     orphan.length +
     extra.length +
     retired.length +
-    stripPadding.length;
+    stripPadding.length +
+    boardReadingRhythm.length;
   console.log(
     `\n${defects === 0 ? "PASS" : "FAIL"}: ${baseline.size - missing.length}/${baseline.size} invariants homed` +
       (missing.length ? ` (${missing.length} missing a home)` : "") +
@@ -292,6 +341,9 @@ function run() {
         : "") +
       (stripPadding.length
         ? ` (${stripPadding.length} strip-padding regression(s))`
+        : "") +
+      (boardReadingRhythm.length
+        ? ` (${boardReadingRhythm.length} board reading-rhythm regression(s))`
         : ""),
   );
   process.exit(defects === 0 ? 0 : 1);

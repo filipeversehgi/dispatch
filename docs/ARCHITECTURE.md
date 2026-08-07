@@ -1812,12 +1812,27 @@ Every site that renders the wordmark imports it rather than repeating the values
 rule 2's tsx carve-out), so this section — not a JSDoc pointer on `wordmarkStyle` itself — is the
 durable home the invariant-audit gate reads for `NEW-17`.
 
-`scripts/check-invariants.mjs` mechanically covers all four through two separate checks: a
+**The contract's looser reading rhythm never enters a board surface (`NEW-19`).** The contract's
+`.reading-surface` class lifts `--line-body` from its global 1.5 to a roomier 1.6
+(`src/web/styles/tokens.css`); Phase 86's criterion 2 forbids that looser rhythm from
+`src/web/features/board/` by name, so it can cost card density. The two carriers of the
+forbidden rhythm are the `.reading-surface` class name and a local `--line-body` redefinition —
+a custom-property declaration, never a `var(--line-body)` _read_. `var(--line-body)` consumption
+at the global 1.5 is expressly permitted: the contract itself specifies `--line-body` as the card
+title's own line height, so barring consumption would force a card-height change, which criterion
+2 forbids outright. The check is directory-scoped to `src/web/features/board/` rather than global
+because `.reading-surface` is legitimately used elsewhere (`Modal.tsx`, `DetailPanel.tsx`).
+`src/web/**/*.tsx` carries zero comments by this repo's comment standard, so this section — not a
+JSDoc pointer on any board component — is the durable home the invariant-audit gate reads for
+`NEW-19`.
+
+`scripts/check-invariants.mjs` mechanically covers all five through three separate checks: a
 global retired-pattern scan over `src/**/*.{ts,tsx}` catches the retired box-shadow focus
 expression, the retired float-shadow literal, and a hardcoded wordmark weight reappearing
-anywhere in source, while a second, file-scoped check (`checkStripPadding`, `NEW-18`, see
+anywhere in source; a second, file-scoped check (`checkStripPadding`, `NEW-18`, see
 [App Shell Zones](#app-shell-zones)) covers a fourth retired literal that the global scan cannot
-safely reach.
+safely reach; and a third, directory-scoped check (`checkBoardReadingRhythm`, `NEW-19`, above)
+covers the fifth.
 
 ### App Shell Zones
 
