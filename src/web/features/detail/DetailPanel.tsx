@@ -141,8 +141,12 @@ export function DetailPanel({
     return () => observer.disconnect();
   }, [resizing]);
 
-  const currentWidthPx = persistedWidth ?? measuredWidth;
   const maxWidthPx = viewportWidth * PANEL_MAX_WIDTH_RATIO;
+  const rawWidthPx = persistedWidth ?? measuredWidth;
+  const currentWidthPx =
+    rawWidthPx != null
+      ? Math.min(maxWidthPx, Math.max(PANEL_MIN_WIDTH_PX, rawWidthPx))
+      : null;
 
   function handleResizeKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
