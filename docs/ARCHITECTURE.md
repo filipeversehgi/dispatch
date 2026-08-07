@@ -2199,30 +2199,46 @@ that the Vite dev port is surfaced as a preview on some OTHER card's board entry
 process tree happens to include it — accepted and recorded here rather than silently claimed
 excluded.
 
-### A search-opened group parent shows zero members until it re-enters the window
+### `GET /api/cards/:id` answers a group parent's real membership directly, independent of windowing
 
-`App.tsx`'s `selectedCardMembers` (`membersOf(selectedCard, board?.cards ?? [])`) scans ONLY
-`board.cards` — the currently loaded, windowed set — for cards carrying the opened card's id as
-`groupId`. The Phase 82 pin fix (`80d7664`, hardened by the milestone-integration-audit fixes
-alongside `PinnedCard`) lets a group PARENT opened via search while out-of-window hydrate and
-DISPLAY correctly, but its members are a separate concern: `GET /api/cards/:id` (`T-82-03`)
-returns exactly one redacted card, never its group's member rows, and `CardSearchResult`
-(`T-82-03`) is deliberately four fields with no `groupId`/`memberIds` — there is no endpoint today
-that can answer "who are this group's members" for a card outside the window. `membersOf`
-therefore silently returns zero members for such a card, rendering an N-member group session as
-if it were solo, until the parent's own Done-window slice (or a live board update) brings the
-members back into `board.cards`.
+`App.tsx`'s `selectedCardMembers` derivation branches on whether the selected card is genuinely
+in-window (`board.cards.some(...)`, the same test the members-precedence rule and the
+actionability derivation below both reuse, rather than each writing an independent copy). An
+IN-WINDOW group card still derives members from the live SSE snapshot via
+`membersOf(selectedCard, board?.cards ?? [])` — `group-members.ts`'s `groupId` filter over
+`board.cards`, unchanged, so members keep updating live wherever the snapshot actually has the
+answer. An OUT-OF-WINDOW group card (reachable only via search, since windowing only ever excludes
+`done` cards past the page size) falls back to `pinned.members`, populated by
+`GET /api/cards/:id`'s response envelope: `{ card, members }`, where `members` is ALWAYS present
+(`[]` for a non-group card, never absent — an absent list is never ambiguous with "this is not a
+group"), and every entry — the card and each member — is routed through `redactCard`, the store's
+one sanctioned redaction site, so a members array can never re-implement the `hookToken` strip via
+a second, drift-prone copy (`T-82-03`).
 
-This does NOT fall out of the `actionablePinnedCard`/`PinnedCard` stub-vs-hydrated fix: that
-distinction gates whether an ALREADY-KNOWN card is safe to act on, not whether its members are
-known at all — a hydrated group parent has genuinely real member ids, but no fetched member DATA
-to show. Closing this properly needs a new members-fetching capability (e.g. a
-`GET /api/cards/:id/members` route, or widening the single-card fetch to embed a redacted member
-list for a `source: "group"` card) — deliberately deferred rather than bolted on here, so as not
-to risk the two real (blocker-severity) fixes it rode in alongside. Degrades to
-under-informative, never incorrect: no member field is misattributed or leaked, the group parent
-itself still displays and is fully actionable, and the gap self-heals the moment the card's normal
-Done-window slice includes its members again.
+The server side of this answers the membership question over `BoardStore`'s FULL in-memory `cards`
+Map (`board.store.ts`'s `membersOf(groupId)`), never the windowed wire `snapshot()` — the whole
+point of a single-card fetch (per its own JSDoc) is answering for cards the windowed snapshot
+excludes, so routing the members lookup through `snapshot()` would just re-import the same
+windowing gap it exists to route around. This server-side filter is a distinct implementation from
+the client's own `group-members.ts#membersOf`, which filters an ALREADY-fetched `Card[]` array —
+the two are kept as exactly two legitimate copies of the same `groupId` predicate, one server-side
+over the live Map, one client-side over an array, rather than a third independently-derived
+condition appearing anywhere.
+
+Actionability stays a separate, explicit question from "are the members known at all." A hydrated
+out-of-window group parent's member rows are actionable in exactly the same way an in-window
+card's are: `MemberRow`'s `actionable: boolean` prop is REQUIRED (no default), derived at exactly
+one site — `actionablePinnedMembers` in `pinned-card.ts`, the sibling to `actionablePinnedCard`
+with the identical three-part stub-vs-hydrated guard — so a stub can never present an actionable
+member row, and a future call site cannot silently inherit an answer nobody chose. A stub card
+(`stubToCard`'s filler placeholder, every non-identity field meaningless) renders NO Members block
+at all, not an empty or disabled one, because `ReferenceBlocks`'s `c.source === "group"` guard is
+never satisfied by a stub — `stubToCard` never sets `source: "group"`.
+
+This section previously recorded a deliberate residual: a search-opened group parent showed zero
+members until it re-entered the window, because `GET /api/cards/:id` returned a bare card with no
+membership data at all. That gap is closed — this section now describes the shipped mechanism,
+not the defect it replaced.
 
 ## Verification Gates
 
