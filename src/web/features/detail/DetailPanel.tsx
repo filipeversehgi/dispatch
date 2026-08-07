@@ -389,7 +389,8 @@ export function DetailPanel({
             }
             aria-valuemin={PANEL_MIN_WIDTH_PX}
             aria-valuemax={Math.round(maxWidthPx)}
-            tabIndex={0}
+            aria-hidden={!open}
+            tabIndex={open ? 0 : -1}
             onPointerDown={handleResizePointerDown}
             onClick={(e) => e.stopPropagation()}
             onDoubleClick={handleResizeDoubleClick}
