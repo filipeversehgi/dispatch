@@ -7,9 +7,15 @@ import type { Card as CardModel } from "../../../shared/types.js";
  * result: a complete, redacted, real card, exactly as actionable as one the board's own window
  * already carries. `card` and `kind` are bundled in one state value, not two booleans set in
  * parallel, so an action-derivation site cannot read one without the other and re-collapse the
- * distinction this type exists to keep explicit.
+ * distinction this type exists to keep explicit. `members` is bundled here for the same reason —
+ * a site that could read the member list without also reading `kind` would re-collapse the
+ * stub/hydrated distinction this type exists to keep explicit.
  */
-export type PinnedCard = { card: CardModel; kind: "stub" | "hydrated" };
+export type PinnedCard = {
+  card: CardModel;
+  kind: "stub" | "hydrated";
+  members: CardModel[];
+};
 
 /**
  * The card to act on when a live-window lookup (`board.cards.find`) misses — actionable ONLY when

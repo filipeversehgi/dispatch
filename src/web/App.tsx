@@ -101,7 +101,12 @@ export function App() {
     onBoardUpdate: (snapshot) => {
       if (selectedCardId == null) return;
       const live = snapshot.cards.find((card) => card.id === selectedCardId);
-      if (live != null) setPinned({ card: live, kind: "hydrated" });
+      if (live != null)
+        setPinned({
+          card: live,
+          kind: "hydrated",
+          members: membersOf(live, snapshot.cards),
+        });
     },
   });
 
@@ -128,16 +133,27 @@ export function App() {
   const selectedCard =
     board?.cards.find((card) => card.id === selectedCardId) ??
     (pinned?.card.id === selectedCardId ? pinned.card : null);
+  const selectedCardInWindow =
+    board?.cards.some((card) => card.id === selectedCardId) === true;
   const selectedCardMembers =
-    selectedCard != null && selectedCard.source === "group"
-      ? membersOf(selectedCard, board?.cards ?? [])
-      : undefined;
+    selectedCard == null || selectedCard.source !== "group"
+      ? undefined
+      : selectedCardInWindow
+        ? membersOf(selectedCard, board?.cards ?? [])
+        : pinned?.card.id === selectedCardId
+          ? pinned.members
+          : [];
 
   function selectCard(id: string | null) {
     setSelectedCardId(id);
     if (id == null) return;
     const live = board?.cards.find((card) => card.id === id);
-    if (live != null) setPinned({ card: live, kind: "hydrated" });
+    if (live != null)
+      setPinned({
+        card: live,
+        kind: "hydrated",
+        members: membersOf(live, board?.cards ?? []),
+      });
   }
 
   function selectSearchResult(result: CardSearchResult) {
@@ -147,13 +163,18 @@ export function App() {
       setPinnedHydrating(false);
       return;
     }
-    setPinned({ card: stubToCard(result), kind: "stub" });
+    setPinned({ card: stubToCard(result), kind: "stub", members: [] });
     setPinnedHydrating(true);
     const gen = ++pinFetchGenRef.current;
     getCard(result.id)
-      .then((card) => {
+      .then((fetched) => {
         if (gen !== pinFetchGenRef.current) return;
-        if (card != null) setPinned({ card, kind: "hydrated" });
+        if (fetched != null)
+          setPinned({
+            card: fetched.card,
+            kind: "hydrated",
+            members: fetched.members,
+          });
         setPinnedHydrating(false);
       })
       .catch(() => {
@@ -350,10 +371,7 @@ export function App() {
       detail={
         <DetailPanel
           card={selectedCard}
-          hydrating={
-            pinnedHydrating &&
-            board?.cards.some((card) => card.id === selectedCardId) !== true
-          }
+          hydrating={pinnedHydrating && !selectedCardInWindow}
           editors={board?.editors}
           activityEvents={feed.events}
           cardIdentifiers={cardIdentifiers}

@@ -590,6 +590,15 @@ class BoardStore extends EventEmitter {
   }
 
   /**
+   * Live, unredacted members of a group card, read from the full in-memory set (not the windowed
+   * wire snapshot) — the server-side mirror of the client's group-members.ts#membersOf filter.
+   * Callers must redact each entry before it leaves the process, exactly like getCard's callers do.
+   */
+  membersOf(groupId: string): Card[] {
+    return [...this.cards.values()].filter((c) => c.groupId === groupId);
+  }
+
+  /**
    * Synchronous read of the registered workspace folders + last-used pick, for
    * `GET /workspace-folders` (mirrors getCard — a cheap field read that has no need to build a
    * full, redacted, potentially windowed `BoardSnapshot`).
