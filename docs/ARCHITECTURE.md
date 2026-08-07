@@ -960,6 +960,12 @@ string, never a client-supplied path. The launch is a fast GUI hand-off (do NOT 
 process); on a stale boot-resolved path (Homebrew relink, editor moved) it re-resolves ONCE, refreshes
 the module cache, and retries a single time before rethrowing to the fire-and-forget `.catch`.
 
+**The embedded terminal client this iframe loads is fenced out of Phase 87's diff (`NEW-20`, see
+[Design System Invariants](#design-system-invariants)).** This section covers the panel CONTAINER
+around the terminal — the `<iframe>`'s identity, mount lifecycle, and sizing; `NEW-20` covers the
+terminal client itself (`src/web/terminal-main.ts`, `src/web/terminal.html`), which this phase may
+not touch.
+
 ### Tmux Invocations
 
 The tmux adapter (`adapters/tmux.ts`) is argv-only — every call routes through `run()`
@@ -1831,13 +1837,32 @@ because `.reading-surface` is legitimately used elsewhere (`Modal.tsx`, `DetailP
 JSDoc pointer on any board component — is the durable home the invariant-audit gate reads for
 `NEW-19`.
 
-`scripts/check-invariants.mjs` mechanically covers all five through three separate checks: a
+**The embedded terminal client is fenced out of Phase 87's diff (`NEW-20`).** The two paths
+`src/web/terminal-main.ts` and `src/web/terminal.html` are the entire embedded terminal client —
+there is no terminal-client directory on disk, so the fence names these two paths directly rather
+than a glob. `src/web/features/detail/TerminalRegion.tsx`, which renders the panel's `<iframe>`
+around that client, is a DIFFERENT file and is NOT fenced: the panel container may change this
+phase, the terminal client itself may not. **Enforcement is SPLIT into two halves, and neither
+half alone is the whole guarantee.** The mechanical half — `checkTerminalFence` in
+`scripts/check-invariants.mjs`, run by `node scripts/check-invariants.mjs` — proves only that the
+fence's SUBJECT SET is intact (neither fenced path was renamed or deleted, and no new
+`terminal*`-named sibling file appeared beside them in `src/web/`) and that `NEW-20` has a home.
+It structurally CANNOT prove the fenced files' CONTENTS are unchanged, because
+`check-invariants.mjs`'s entire mechanism is point-in-time pattern matching against the current
+tree, with zero `git diff`/`execSync` calls anywhere in the script. The second half — proving the
+CONTENTS are unchanged — is the on-demand command `git diff <base-sha>..HEAD --
+src/web/terminal-main.ts src/web/terminal.html`, run against the phase's recorded base SHA; empty
+output is the proof. A reader who sees `PASS: 121/121` alone has not yet seen this second half
+run.
+
+`scripts/check-invariants.mjs` mechanically covers all six through four separate checks: a
 global retired-pattern scan over `src/**/*.{ts,tsx}` catches the retired box-shadow focus
 expression, the retired float-shadow literal, and a hardcoded wordmark weight reappearing
 anywhere in source; a second, file-scoped check (`checkStripPadding`, `NEW-18`, see
 [App Shell Zones](#app-shell-zones)) covers a fourth retired literal that the global scan cannot
-safely reach; and a third, directory-scoped check (`checkBoardReadingRhythm`, `NEW-19`, above)
-covers the fifth.
+safely reach; a third, directory-scoped check (`checkBoardReadingRhythm`, `NEW-19`, above) covers
+the fifth; and a fourth, file-scoped check (`checkTerminalFence`, `NEW-20`, above) covers the
+sixth — proving only the fenced subject set, never the fenced contents, as stated above.
 
 ### App Shell Zones
 
