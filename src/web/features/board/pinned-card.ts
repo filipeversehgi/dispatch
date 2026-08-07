@@ -31,3 +31,24 @@ export function actionablePinnedCard(
     ? pinned.card
     : null;
 }
+
+/**
+ * The single site where a member row's actionability is decided for the pinned-fallback case —
+ * the sibling to {@link actionablePinnedCard}, same three-part guard, boolean instead of the
+ * card itself. A stub's members must never be actionable: every non-identity field of a stub is
+ * filler (`search-stub.ts`), so presenting an action on one would act on values the client does
+ * not actually know. Callers OR this with their own in-window test; this function deliberately
+ * knows nothing about `board.cards`, mirroring how `actionablePinnedCard` does not either.
+ *
+ * `MemberRow`'s `actionable` prop (the sole consumer of this boolean, threaded through
+ * `ReferenceBlocks`) is declared REQUIRED with no default — deliberately unlike `MemberRow`'s
+ * `dense` prop — so a new call site is a compile error rather than a silent inherited default.
+ * That rationale lives here, not as a JSDoc on `MemberRow.tsx` itself, because every `.tsx` file
+ * under this repo's `src/web` tree carries zero comments of any kind under the comment standard.
+ */
+export function actionablePinnedMembers(
+  id: string | null | undefined,
+  pinned: PinnedCard | null,
+): boolean {
+  return pinned != null && pinned.kind === "hydrated" && pinned.card.id === id;
+}
