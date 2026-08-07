@@ -25,7 +25,7 @@ export function ReferenceBlocks({ card, members }: ReferenceBlocksProps) {
             gap: "var(--space-xs)",
           }}
         >
-          <Field>{`Members (${members.length})`}</Field>
+          <Field section>{`Members (${members.length})`}</Field>
           {members.map((member) => (
             <MemberRow
               key={member.id}
