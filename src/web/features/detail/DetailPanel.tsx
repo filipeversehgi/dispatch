@@ -120,9 +120,7 @@ export function DetailPanel({
   const [resizing, setResizing] = useState(false);
   const [handleFocused, setHandleFocused] = useState(false);
   const [measuredWidth, setMeasuredWidth] = useState<number | null>(null);
-  const [viewportWidth, setViewportWidth] = useState<number>(
-    () => window.innerWidth,
-  );
+  const [, setViewportWidth] = useState<number>(() => window.innerWidth);
 
   useEffect(() => {
     return () => cleanupDragRef.current?.();
@@ -141,7 +139,7 @@ export function DetailPanel({
     return () => observer.disconnect();
   }, [resizing]);
 
-  const maxWidthPx = viewportWidth * PANEL_MAX_WIDTH_RATIO;
+  const maxWidthPx = window.innerWidth * PANEL_MAX_WIDTH_RATIO;
   const rawWidthPx = persistedWidth ?? measuredWidth;
   const currentWidthPx =
     rawWidthPx != null
@@ -153,11 +151,12 @@ export function DetailPanel({
     e.preventDefault();
     const node = asideRef.current;
     if (node == null) return;
+    const liveMaxPx = window.innerWidth * PANEL_MAX_WIDTH_RATIO;
     const base = currentWidthPx ?? node.getBoundingClientRect().width;
     const delta =
       e.key === "ArrowLeft" ? PANEL_KEYBOARD_STEP_PX : -PANEL_KEYBOARD_STEP_PX;
     const next = Math.min(
-      maxWidthPx,
+      liveMaxPx,
       Math.max(PANEL_MIN_WIDTH_PX, base + delta),
     );
     commitPanelWidth(next);
