@@ -40,10 +40,10 @@ const ID_RE =
  * size so an accidentally emptied/truncated baseline (or an unratified
  * regeneration) can never silently disarm the gate into `PASS: 0/0`. Bump this
  * ONLY together with a deliberate, human-ratified baseline regeneration.
- * @remarks Moved from 119 to 120 for the deliberate one-ID board reading-rhythm
- * re-freeze (`NEW-19`) — see docs/ARCHITECTURE.md#design-system-invariants.
+ * @remarks Moved from 120 to 121 for the deliberate one-ID terminal-fence
+ * re-freeze (`NEW-20`) — see docs/ARCHITECTURE.md#design-system-invariants.
  */
-const FROZEN_COUNT = 120;
+const FROZEN_COUNT = 121;
 
 const SRC_DIR = "src";
 const SKIP_DIR = join("src", "web", "dist");
@@ -51,6 +51,11 @@ const DOCS_PATH = join("docs", "ARCHITECTURE.md");
 const BASELINE_PATH = join("scripts", "invariant-baseline.txt");
 const SYNC_STRIP_PATH = join("src", "web", "features", "sync", "SyncStrip.tsx");
 const BOARD_DIR = join("src", "web", "features", "board");
+const WEB_DIR = join("src", "web");
+const TERMINAL_CLIENT_PATHS = [
+  join("src", "web", "terminal-main.ts"),
+  join("src", "web", "terminal.html"),
+];
 
 /**
  * Recursively list every .ts/.tsx source file, skipping the built web bundle.
@@ -187,6 +192,45 @@ function checkBoardReadingRhythm() {
 }
 
 /**
+ * File-scoped embedded-terminal-client fence (`NEW-20`). The fenced subject is exactly
+ * `TERMINAL_CLIENT_PATHS` — there is no terminal-client directory on disk, so this names paths
+ * rather than a glob. `TerminalRegion.tsx` (the panel container that renders the terminal
+ * `<iframe>`) is a different file and is NOT fenced.
+ * @remarks This leg detects the fence's SUBJECT SET silently changing — a rename, a deletion, or
+ * a new sibling terminal-client file appearing beside the fenced two. It does NOT and CANNOT
+ * detect an edit to the CONTENTS of a fenced file: `check-invariants.mjs`'s entire mechanism is
+ * point-in-time pattern matching against the current tree, with zero `git diff`/`execSync` calls
+ * anywhere in this file. Proving the fenced files' CONTENTS are unchanged since a given commit is
+ * a separate, on-demand `git diff <base-sha>..HEAD -- src/web/terminal-main.ts
+ * src/web/terminal.html` run — see docs/ARCHITECTURE.md#design-system-invariants for the split.
+ * @see docs/ARCHITECTURE.md#design-system-invariants
+ * @returns Violation report lines: a missing/renamed fenced path (SUBJECT PRESENT), or a new
+ * `terminal*` sibling file outside the fence (SUBJECT COMPLETE).
+ */
+function checkTerminalFence() {
+  const violations = [];
+  for (const path of TERMINAL_CLIENT_PATHS) {
+    if (!existsSync(path)) {
+      violations.push(
+        `${path}: file not found — NEW-20's fenced terminal-client subject is missing or renamed`,
+      );
+    }
+  }
+  if (existsSync(WEB_DIR)) {
+    for (const entry of readdirSync(WEB_DIR)) {
+      if (!entry.startsWith("terminal")) continue;
+      const full = join(WEB_DIR, entry);
+      if (!TERMINAL_CLIENT_PATHS.includes(full)) {
+        violations.push(
+          `${full}: retired pattern NEW-20 — a new embedded-terminal-client file appeared outside the fenced set`,
+        );
+      }
+    }
+  }
+  return violations;
+}
+
+/**
  * Collect invariant IDs that appear inside JSDoc blocks only.
  * @remarks Toggles an in-block flag on `/**` and `*\/`; body/line `//` comments
  * are never scanned, so an undeleted original body comment is not a false home.
@@ -280,21 +324,24 @@ function generateBaseline() {
 
 /**
  * Run the invariant-home diff, the global retired-pattern scan, the file-scoped
- * strip-padding check, and the directory-scoped board reading-rhythm check, then
- * set the process exit code.
- * @remarks All four diff legs gate the exit, not just MISSING: in a
+ * strip-padding check, the directory-scoped board reading-rhythm check, and the
+ * file-scoped terminal-client fence, then set the process exit code.
+ * @remarks All five diff legs gate the exit, not just MISSING: in a
  * frozen-baseline world an EXTRA (homed but unbaselined — a typo'd ID in docs
  * or an unratified new ID in JSDoc) and an ORPHAN (present in src but
  * unbaselined) are always defects, and an informational-only leg would let
  * them accumulate silently through the body-comment deletion phases. The
- * retired-pattern leg, the strip-padding leg, and the board reading-rhythm leg
- * are all independent of the ID-baseline arithmetic above — a design literal
- * coming back is a defect regardless of whether any invariant ID also moved.
- * The strip-padding leg (`NEW-18`) and the board reading-rhythm leg (`NEW-19`)
- * are both deliberately scoped (file-scoped and directory-scoped respectively)
- * rather than folded into `RETIRED_PATTERNS`, since each pattern is legitimate
- * outside its own scope.
- * @returns Nothing; exits 0 iff MISSING, ORPHAN, EXTRA, RETIRED, STRIP PADDING, and BOARD READING RHYTHM are all empty.
+ * retired-pattern leg, the strip-padding leg, the board reading-rhythm leg, and
+ * the terminal-fence leg are all independent of the ID-baseline arithmetic
+ * above — a design literal coming back, or the terminal-client subject set
+ * changing, is a defect regardless of whether any invariant ID also moved.
+ * The strip-padding leg (`NEW-18`), the board reading-rhythm leg (`NEW-19`),
+ * and the terminal-fence leg (`NEW-20`) are all deliberately scoped (file- or
+ * directory-scoped) rather than folded into `RETIRED_PATTERNS`, since each
+ * pattern is legitimate outside its own scope. The terminal-fence leg only
+ * proves the fenced SUBJECT SET is intact — it cannot prove the fenced files'
+ * CONTENTS are unchanged; see `checkTerminalFence`'s own JSDoc for the split.
+ * @returns Nothing; exits 0 iff MISSING, ORPHAN, EXTRA, RETIRED, STRIP PADDING, BOARD READING RHYTHM, and TERMINAL FENCE are all empty.
  */
 function run() {
   const home = new Set();
@@ -315,6 +362,7 @@ function run() {
   const retired = checkRetiredPatterns();
   const stripPadding = checkStripPadding();
   const boardReadingRhythm = checkBoardReadingRhythm();
+  const terminalFence = checkTerminalFence();
 
   report("MISSING (baseline - home)", missing);
   report("ORPHAN  (present - baseline)", orphan);
@@ -322,6 +370,7 @@ function run() {
   report("RETIRED (design literals that came back)", retired);
   report("STRIP PADDING (NEW-18)", stripPadding);
   report("BOARD READING RHYTHM (NEW-19)", boardReadingRhythm);
+  report("TERMINAL FENCE (NEW-20)", terminalFence);
 
   const defects =
     missing.length +
@@ -329,7 +378,8 @@ function run() {
     extra.length +
     retired.length +
     stripPadding.length +
-    boardReadingRhythm.length;
+    boardReadingRhythm.length +
+    terminalFence.length;
   console.log(
     `\n${defects === 0 ? "PASS" : "FAIL"}: ${baseline.size - missing.length}/${baseline.size} invariants homed` +
       (missing.length ? ` (${missing.length} missing a home)` : "") +
@@ -344,6 +394,9 @@ function run() {
         : "") +
       (boardReadingRhythm.length
         ? ` (${boardReadingRhythm.length} board reading-rhythm regression(s))`
+        : "") +
+      (terminalFence.length
+        ? ` (${terminalFence.length} terminal-fence regression(s))`
         : ""),
   );
   process.exit(defects === 0 ? 0 : 1);
