@@ -889,6 +889,23 @@ identity-stable across four separate mutations:
   `pointerType` sniffing this section warns against elsewhere — the value is fixed for the whole
   gesture, exactly like `isCoarsePointer` is fixed for the whole render.
 
+**The handle is also a keyboard-operable `role="separator"`.** It declares
+`aria-orientation="vertical"`, is focusable (`tabIndex={0}`), and reports
+`aria-valuenow`/`aria-valuemin`/`aria-valuemax` tracking the live rendered width. `ArrowLeft`
+widens the panel and `ArrowRight` narrows it — reversed from an intuitive left-to-right slider
+because the panel is anchored to the right edge, so leftward growth is what a pointer drag in
+that direction already produces. Both input modes read one pair of module constants
+(`PANEL_MIN_WIDTH_PX`, `PANEL_MAX_WIDTH_RATIO`) so the pointer and keyboard paths can never
+disagree about the resizable range, and both commit through the same `setPanelWidth` call so a
+keyboard resize persists identically to a pointer one. The `aria-valuenow`/`aria-valuemax`
+values are fed by a `ResizeObserver` watching both the panel `<aside>` and
+`document.documentElement`, gated off (`resizing` state) for the duration of a pointer drag so
+the observer never fires mid-drag and never re-renders the panel while the pointerup write is
+still imperative — preserving the drag's instant-feel, remount-free contract. The handle does
+not render below `CAROUSEL_QUERY`, for the same reason the touch discussion above gives: takeover
+forces the panel to `100vw`, so there is no width left to trade — a deliberate non-fix, not a gap
+to close.
+
 **Docked (Orca) mode is a SECOND style-only derivation of the same `<aside>`, re-deriving `PANEL-03`
 for a second surface.** `position` stays `fixed` in BOTH modes — only `top`/`left`/`width`/`height`/
 `borderLeft`/`transform`/`transition` branch on the `docked` prop, the exact same category of change
