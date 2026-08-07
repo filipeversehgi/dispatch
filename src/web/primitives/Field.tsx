@@ -3,6 +3,7 @@ import { type CSSProperties, type ReactNode } from "react";
 interface FieldProps {
   children: ReactNode;
   mono?: boolean;
+  section?: boolean;
   style?: CSSProperties;
 }
 
@@ -19,10 +20,12 @@ const monoLabelStyle: CSSProperties = {
   fontSize: "var(--font-micro)",
 };
 
-export function Field({ children, mono, style }: FieldProps) {
-  return (
-    <span style={{ ...(mono ? monoLabelStyle : labelStyle), ...style }}>
-      {children}
-    </span>
-  );
+const sectionLabelStyle: CSSProperties = {
+  ...labelStyle,
+  fontWeight: "var(--weight-medium)",
+};
+
+export function Field({ children, mono, section, style }: FieldProps) {
+  const base = mono ? monoLabelStyle : section ? sectionLabelStyle : labelStyle;
+  return <span style={{ ...base, ...style }}>{children}</span>;
 }

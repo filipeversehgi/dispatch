@@ -481,11 +481,11 @@ export function DetailPanel({
                       (c.prs != null && c.prs.length > 0) ||
                       (c.previews != null && c.previews.length > 0)) && (
                       <div
+                        className="reading-surface"
                         style={{
                           display: "flex",
                           flexDirection: "column",
                           gap: "var(--space-sm)",
-                          padding: "var(--space-xl)",
                           borderBottom: "1px solid var(--border)",
                         }}
                       >
