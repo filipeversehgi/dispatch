@@ -93,7 +93,7 @@ export function MoveToPicker({
           width: `${menuWidth}px`,
           background: "var(--surface-card)",
           border: "1px solid var(--border)",
-          borderRadius: "var(--radius)",
+          borderRadius: "var(--radius-lg)",
           boxShadow: "var(--shadow-float)",
           padding: `${GAP}px 0`,
           display: "flex",

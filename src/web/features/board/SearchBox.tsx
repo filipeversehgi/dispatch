@@ -293,7 +293,7 @@ export function SearchBox({
             flex: "0 0 auto",
             background: `color-mix(in srgb, ${COLUMN_ACCENT[result.column]} 16%, var(--surface-column))`,
             color: COLUMN_ACCENT[result.column],
-            borderRadius: "var(--radius)",
+            borderRadius: "var(--radius-sm)",
             padding: "0 var(--space-xs)",
             fontSize: "var(--font-label)",
             whiteSpace: "nowrap",
@@ -317,7 +317,7 @@ export function SearchBox({
         overflowY: "auto",
         background: "var(--surface-card)",
         border: "1px solid var(--border)",
-        borderRadius: "var(--radius)",
+        borderRadius: "var(--radius-lg)",
         boxShadow: "var(--shadow-float)",
       }}
     >
@@ -396,7 +396,7 @@ export function SearchBox({
               width: `${panelWidth}px`,
               background: "var(--surface-card)",
               border: "1px solid var(--border)",
-              borderRadius: "var(--radius)",
+              borderRadius: "var(--radius-lg)",
               boxShadow: "var(--shadow-float)",
               padding: `${GAP}px 0`,
               display: "flex",
