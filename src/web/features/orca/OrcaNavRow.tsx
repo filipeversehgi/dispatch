@@ -22,7 +22,7 @@ const chipStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   gap: "var(--space-xs)",
-  borderRadius: "var(--radius)",
+  borderRadius: "var(--radius-sm)",
   padding: "0 var(--space-xs)",
   fontSize: "var(--font-label)",
   fontWeight: "var(--weight-semibold)",
