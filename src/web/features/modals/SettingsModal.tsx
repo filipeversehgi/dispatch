@@ -46,10 +46,13 @@ interface SettingsTabButtonProps {
 }
 
 function SettingsTabButton({ label, active, onClick }: SettingsTabButtonProps) {
+  const [focused, setFocused] = useState(false);
   return (
     <button
       type="button"
       onClick={onClick}
+      onFocus={(e) => setFocused(e.currentTarget.matches(":focus-visible"))}
+      onBlur={() => setFocused(false)}
       style={{
         padding: "0 0 var(--space-sm)",
         background: "transparent",
@@ -64,6 +67,7 @@ function SettingsTabButton({ label, active, onClick }: SettingsTabButtonProps) {
         lineHeight: "var(--line-label)",
         cursor: "pointer",
         outline: "none",
+        ...focusRing(focused),
       }}
     >
       {label}
@@ -1388,7 +1392,7 @@ export function SettingsModal({
               disabled={cleanupTab.validationError}
               loading={cleanupTab.saving}
             >
-              {cleanupTab.saving ? "Saving…" : "Save"}
+              {cleanupTab.saving ? "Saving…" : "Save cleanup delay"}
             </Button>
           </div>
         ) : null}
