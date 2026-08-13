@@ -57,7 +57,7 @@ const monoScrollStyle: CSSProperties = {
   background: "var(--surface-card)",
   border: "1px solid var(--border)",
   borderRadius: "var(--radius)",
-  padding: "var(--space-xl)",
+  padding: "var(--space-xl) var(--space-lg)",
   maxHeight: "240px",
   overflowY: "auto",
   fontFamily: "var(--font-mono)",
