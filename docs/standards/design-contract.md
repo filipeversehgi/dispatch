@@ -116,13 +116,14 @@ The surface ladder stays exactly as it is: `--bg` / `--surface-column` / `--surf
 `--surface-card-hover`, hairline borders, no drop shadow at rest. `--shadow-float` is the only
 shadow token in the system, defined once in `tokens.css`. The invariant is that single
 definition, not a consumer cap — a second, independently-defined shadow value is the regression,
-not an additional consumer of the one token. Measured today it is consumed at six call sites: the
+not an additional consumer of the one token. Measured today it is consumed at seven call sites: the
 card drag overlay (`CardView.tsx:171`), the selection bar (`SelectionBar.tsx:29`), the search
 results listbox (`SearchBox.tsx:321`), the carousel search overlay (`SearchBox.tsx:400`), the
-move-to picker (`MoveToPicker.tsx:97`), and the modal (`Modal.tsx:110`) — corrected from this
-table's earlier three-element count, which predated Phase 84 shipping the picker and the carousel
-overlay as additional consumers. At-rest cards and columns keep no shadow — confirmed via live
-measurement that an at-rest card's own `boxShadow` computes to `none` at every breakpoint.
+move-to picker (`MoveToPicker.tsx:97`), the multi-select dropdown (`MultiSelect.tsx:248`), and the
+modal (`Modal.tsx:110`) — corrected from this table's earlier three-element count, which predated
+Phase 84 shipping the picker and the carousel overlay as additional consumers. At-rest cards and
+columns keep no shadow — confirmed via live measurement that an at-rest card's own `boxShadow`
+computes to `none` at every breakpoint.
 
 ## Motion
 

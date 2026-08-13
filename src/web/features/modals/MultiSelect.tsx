@@ -244,7 +244,8 @@ export function MultiSelect({
             zIndex: 1,
             background: "var(--surface-card)",
             border: "1px solid var(--border)",
-            borderRadius: "var(--radius)",
+            borderRadius: "var(--radius-lg)",
+            boxShadow: "var(--shadow-float)",
             display: "flex",
             flexDirection: "column",
           }}

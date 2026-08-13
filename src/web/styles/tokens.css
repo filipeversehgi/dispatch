@@ -51,7 +51,7 @@
   --radius-sm: 4px; /* chips and badges, up to ~19-27px tall */
   --radius: 6px;
   --radius-lg: 10px; /* modal dialog, ~200px tall and above */
-  --shadow-float: 0 6px 16px rgba(0, 0, 0, 0.45); /* the only shadow token; sanctioned on exactly three elements: the search dropdown, the modal, the drag overlay */
+  --shadow-float: 0 6px 16px rgba(0, 0, 0, 0.45); /* the only shadow token; see docs/ARCHITECTURE.md#design-system-invariants for the consumer list */
 
   /* Priority signal palette (card stripe) */
   --prio-urgent: #e5484d;
