@@ -199,7 +199,7 @@ export function GroupStartModal({
             gap: "var(--space-xs)",
           }}
         >
-          <Field>{`Members (${members.length})`}</Field>
+          <Field section>{`Members (${members.length})`}</Field>
           {members.map((member) => (
             <MemberRow key={member.id} member={member} actionable={true} />
           ))}
