@@ -3,11 +3,22 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type Dispatch,
-  type RefObject,
+  type Ref,
   type SetStateAction,
 } from "react";
-import { Copy, Pencil, Plus, Trash2 } from "lucide-react";
+import {
+  ArrowLeft,
+  ClipboardList,
+  Copy,
+  Filter,
+  Globe,
+  Pencil,
+  Plus,
+  Trash2,
+  type LucideIcon,
+} from "lucide-react";
 import type {
   FilterCapabilities,
   FilterOption,
@@ -33,42 +44,10 @@ import { IconButton } from "../../primitives/IconButton.js";
 import { Modal, type ModalControl } from "../../primitives/Modal.js";
 import { Notice } from "../../primitives/Notice.js";
 import { QrCode } from "../../primitives/QrCode.js";
-import { MultiSelect } from "./MultiSelect.js";
+import { MultiSelect } from "../modals/index.js";
 import { PlaybookEditorModal } from "./PlaybookEditorModal.js";
 
 export type SettingsTab = "filters" | "playbooks" | "remote" | "cleanup";
-
-interface SettingsTabButtonProps {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}
-
-function SettingsTabButton({ label, active, onClick }: SettingsTabButtonProps) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        padding: "0 0 var(--space-sm)",
-        background: "transparent",
-        border: "none",
-        borderBottom: active
-          ? "2px solid var(--accent)"
-          : "2px solid transparent",
-        color: active ? "var(--text)" : "var(--text-muted)",
-        fontFamily: "var(--font-ui)",
-        fontSize: "var(--font-label)",
-        fontWeight: "var(--weight-semibold)",
-        lineHeight: "var(--line-label)",
-        cursor: "pointer",
-        outline: "none",
-      }}
-    >
-      {label}
-    </button>
-  );
-}
 
 interface PlaybookListRowProps {
   playbook: Playbook;
@@ -270,7 +249,7 @@ interface FiltersTab {
   handleSave: () => Promise<void>;
 }
 
-function useFiltersTab(modalRef: RefObject<ModalControl | null>): FiltersTab {
+function useFiltersTab(onSaved: () => void): FiltersTab {
   const [draft, setDraft] = useState<SourceFilters | null>(null);
   const [capabilities, setCapabilities] = useState<FilterCapabilities | null>(
     null,
@@ -363,7 +342,7 @@ function useFiltersTab(modalRef: RefObject<ModalControl | null>): FiltersTab {
     try {
       const result = await saveLinearFilters(draft);
       if (result.ok) {
-        modalRef.current?.requestClose();
+        onSaved();
         return;
       }
       setSaveError(true);
@@ -393,13 +372,9 @@ function useFiltersTab(modalRef: RefObject<ModalControl | null>): FiltersTab {
 
 interface FiltersTabSectionProps {
   filters: FiltersTab;
-  firstTriggerRef: RefObject<HTMLButtonElement | null>;
 }
 
-function FiltersTabSection({
-  filters,
-  firstTriggerRef,
-}: FiltersTabSectionProps) {
+function FiltersTabSection({ filters }: FiltersTabSectionProps) {
   const {
     draft,
     setDraft,
@@ -424,8 +399,6 @@ function FiltersTabSection({
           ? "Matches 250+ tickets"
           : `Matches ${preview.count} ${preview.count === 1 ? "ticket" : "tickets"}`;
 
-  const firstMultiDim = capabilities?.dimensions.find((d) => d !== "cycle");
-
   return (
     <>
       {loadError && (
@@ -447,7 +420,7 @@ function FiltersTabSection({
             display: "flex",
             flexDirection: "column",
             gap: "var(--space-lg)",
-            flex: "0 1 auto",
+            flex: "1 1 auto",
             minHeight: 0,
             overflowY: "auto",
           }}
@@ -534,9 +507,6 @@ function FiltersTabSection({
                   loading={optLoading[dim]}
                   loadError={optError[dim]}
                   emptyText={MULTI_COPY[dim].emptyText}
-                  triggerRef={
-                    dim === firstMultiDim ? firstTriggerRef : undefined
-                  }
                   onChange={(next) =>
                     setDraft((prev) => (prev ? { ...prev, [dim]: next } : prev))
                   }
@@ -1089,7 +1059,7 @@ interface CleanupTab {
   handleSave: () => Promise<void>;
 }
 
-function useCleanupTab(modalRef: RefObject<ModalControl | null>): CleanupTab {
+function useCleanupTab(onSaved: () => void): CleanupTab {
   const [draftDays, setDraftDays] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState(false);
@@ -1128,7 +1098,7 @@ function useCleanupTab(modalRef: RefObject<ModalControl | null>): CleanupTab {
     try {
       const result = await saveCleanupDelay(parsedDays);
       if (result.ok) {
-        modalRef.current?.requestClose();
+        onSaved();
         return;
       }
       setSaveError(true);
@@ -1179,7 +1149,6 @@ function CleanupTabSection({ cleanupTab }: CleanupTabSectionProps) {
           display: "flex",
           flexDirection: "column",
           gap: "var(--space-sm)",
-          padding: "var(--space-lg) 0",
         }}
       >
         <Field>Cleanup delay (days)</Field>
@@ -1241,149 +1210,290 @@ function CleanupTabSection({ cleanupTab }: CleanupTabSectionProps) {
   );
 }
 
-interface SettingsModalProps {
+interface SettingsSection {
+  id: SettingsTab;
+  label: string;
+  icon: LucideIcon;
+}
+
+const SETTINGS_SECTIONS: SettingsSection[] = [
+  { id: "filters", label: "Sync filters", icon: Filter },
+  { id: "playbooks", label: "Playbooks", icon: ClipboardList },
+  { id: "remote", label: "Remote", icon: Globe },
+  { id: "cleanup", label: "Cleanup", icon: Trash2 },
+];
+
+const overlayStyle: CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  zIndex: 18,
+  display: "flex",
+  background: "var(--bg)",
+  transition: "opacity 150ms ease-out",
+};
+
+const sidebarStyle: CSSProperties = {
+  flex: "0 0 auto",
+  width: "var(--orca-nav-width)",
+  maxWidth: "80vw",
+  display: "flex",
+  flexDirection: "column",
+  gap: "var(--space-lg)",
+  padding: "var(--space-lg)",
+  background: "var(--surface-column)",
+  borderRight: "1px solid var(--border)",
+  overflowY: "auto",
+};
+
+const navListStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "2px",
+};
+
+const contentColumnStyle: CSSProperties = {
+  flex: "1 1 auto",
+  minWidth: 0,
+  display: "flex",
+  flexDirection: "column",
+  minHeight: 0,
+};
+
+const contentHeaderStyle: CSSProperties = {
+  flex: "0 0 auto",
+  padding: "var(--space-xl) var(--space-2xl) var(--space-lg)",
+  borderBottom: "1px solid var(--border)",
+};
+
+const contentHeadingStyle: CSSProperties = {
+  margin: 0,
+  fontFamily: "var(--font-ui)",
+  fontSize: "var(--font-display)",
+  fontWeight: "var(--weight-semibold)",
+  lineHeight: "var(--line-display)",
+  color: "var(--text)",
+};
+
+const contentBodyStyle: CSSProperties = {
+  flex: "1 1 auto",
+  minHeight: 0,
+  display: "flex",
+  flexDirection: "column",
+  gap: "var(--space-lg)",
+  padding: "var(--space-xl) var(--space-2xl)",
+  maxWidth: "640px",
+  width: "100%",
+};
+
+const footerStyle: CSSProperties = {
+  flex: "0 0 auto",
+  display: "flex",
+  justifyContent: "flex-end",
+  padding: "var(--space-lg) var(--space-2xl)",
+  borderTop: "1px solid var(--border)",
+};
+
+const navButtonBaseStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--space-sm)",
+  width: "100%",
+  padding: "var(--space-sm)",
+  border: "none",
+  borderRadius: "var(--radius)",
+  fontFamily: "var(--font-ui)",
+  fontSize: "var(--font-label)",
+  fontWeight: "var(--weight-semibold)",
+  lineHeight: "var(--line-label)",
+  textAlign: "left",
+  cursor: "pointer",
+  outline: "none",
+};
+
+interface BackToAppButtonProps {
+  onClick: () => void;
+  ref?: Ref<HTMLButtonElement>;
+}
+
+function BackToAppButton({ onClick, ref }: BackToAppButtonProps) {
+  const [hover, setHover] = useState(false);
+  const [focused, setFocused] = useState(false);
+  return (
+    <button
+      ref={ref}
+      type="button"
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onFocus={(e) => setFocused(e.currentTarget.matches(":focus-visible"))}
+      onBlur={() => setFocused(false)}
+      style={{
+        ...navButtonBaseStyle,
+        background: hover ? "var(--surface-card-hover)" : "transparent",
+        color: "var(--text-muted)",
+        boxShadow: focusRing(focused),
+      }}
+    >
+      <ArrowLeft size={14} strokeWidth={2} aria-hidden="true" />
+      Back to app
+    </button>
+  );
+}
+
+interface SettingsNavItemProps {
+  icon: LucideIcon;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}
+
+function SettingsNavItem({
+  icon: Icon,
+  label,
+  active,
+  onClick,
+}: SettingsNavItemProps) {
+  const [hover, setHover] = useState(false);
+  const [focused, setFocused] = useState(false);
+  return (
+    <button
+      type="button"
+      aria-current={active ? "page" : undefined}
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onFocus={(e) => setFocused(e.currentTarget.matches(":focus-visible"))}
+      onBlur={() => setFocused(false)}
+      style={{
+        ...navButtonBaseStyle,
+        background: active
+          ? "var(--surface-card)"
+          : hover
+            ? "var(--surface-card-hover)"
+            : "transparent",
+        color: active ? "var(--text)" : "var(--text-muted)",
+        boxShadow: focusRing(focused),
+      }}
+    >
+      <Icon size={14} strokeWidth={2} aria-hidden="true" />
+      {label}
+    </button>
+  );
+}
+
+interface SettingsScreenProps {
   onClose: () => void;
   initialTab?: SettingsTab;
   tunnelState: TunnelState;
 }
 
-export function SettingsModal({
+export function SettingsScreen({
   onClose,
   initialTab = "filters",
   tunnelState,
-}: SettingsModalProps) {
-  const modalRef = useRef<ModalControl>(null);
-  const firstTriggerRef = useRef<HTMLButtonElement>(null);
+}: SettingsScreenProps) {
   const [tab, setTab] = useState<SettingsTab>(initialTab);
+  const [entered, setEntered] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const closingRef = useRef(false);
+  const backButtonRef = useRef<HTMLButtonElement>(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
-  const filters = useFiltersTab(modalRef);
+  const requestClose = useCallback(() => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    setClosing(true);
+    setTimeout(() => onCloseRef.current(), 150);
+  }, []);
+
+  useEffect(() => {
+    backButtonRef.current?.focus();
+    const raf = requestAnimationFrame(() => setEntered(true));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  const filters = useFiltersTab(requestClose);
   const playbooksTab = usePlaybooksTab(tab === "playbooks");
   const remoteTab = useRemoteTab();
-  const cleanupTab = useCleanupTab(modalRef);
+  const cleanupTab = useCleanupTab(requestClose);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (playbooksTab.editorState || playbooksTab.deleteTarget) return;
+      requestClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [playbooksTab.editorState, playbooksTab.deleteTarget, requestClose]);
+
+  const activeSection =
+    SETTINGS_SECTIONS.find((section) => section.id === tab) ??
+    SETTINGS_SECTIONS[0];
 
   return (
-    <Modal
-      ariaLabel="Settings"
-      onClose={onClose}
-      controlRef={modalRef}
-      initialFocusRef={firstTriggerRef}
-      dialogStyle={
-        tab === "playbooks"
-          ? { width: "560px", maxHeight: "80vh" }
-          : { maxHeight: "80vh" }
-      }
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Settings"
+      style={{
+        ...overlayStyle,
+        opacity: entered && !closing ? 1 : 0,
+      }}
     >
-      <Modal.Header>Settings</Modal.Header>
-      <Modal.Body>
-        <div
-          style={{
-            display: "flex",
-            gap: "var(--space-lg)",
-            borderBottom: "1px solid var(--border)",
-            flex: "0 0 auto",
-          }}
-        >
-          <SettingsTabButton
-            label="Sync filters"
-            active={tab === "filters"}
-            onClick={() => setTab("filters")}
-          />
-          <SettingsTabButton
-            label="Playbooks"
-            active={tab === "playbooks"}
-            onClick={() => setTab("playbooks")}
-          />
-          <SettingsTabButton
-            label="Remote"
-            active={tab === "remote"}
-            onClick={() => setTab("remote")}
-          />
-          <SettingsTabButton
-            label="Cleanup"
-            active={tab === "cleanup"}
-            onClick={() => setTab("cleanup")}
-          />
+      <nav aria-label="Settings sections" style={sidebarStyle}>
+        <SettingsScreen.BackToApp ref={backButtonRef} onClick={requestClose} />
+        <div style={navListStyle}>
+          {SETTINGS_SECTIONS.map((section) => (
+            <SettingsNavItem
+              key={section.id}
+              icon={section.icon}
+              label={section.label}
+              active={tab === section.id}
+              onClick={() => setTab(section.id)}
+            />
+          ))}
+        </div>
+      </nav>
+
+      <div style={contentColumnStyle}>
+        <div style={contentHeaderStyle}>
+          <h1 style={contentHeadingStyle}>{activeSection.label}</h1>
+        </div>
+
+        <div style={contentBodyStyle}>
+          {tab === "filters" && <SettingsScreen.FiltersTab filters={filters} />}
+          {tab === "playbooks" && (
+            <SettingsScreen.PlaybooksTab playbooksTab={playbooksTab} />
+          )}
+          {tab === "remote" && (
+            <SettingsScreen.RemoteTab
+              tunnelState={tunnelState}
+              remoteTab={remoteTab}
+            />
+          )}
+          {tab === "cleanup" && (
+            <SettingsScreen.CleanupTab cleanupTab={cleanupTab} />
+          )}
         </div>
 
         {tab === "filters" && (
-          <SettingsModal.FiltersTab
-            filters={filters}
-            firstTriggerRef={firstTriggerRef}
-          />
-        )}
-
-        {tab === "playbooks" && (
-          <SettingsModal.PlaybooksTab playbooksTab={playbooksTab} />
-        )}
-
-        {tab === "remote" && (
-          <SettingsModal.RemoteTab
-            tunnelState={tunnelState}
-            remoteTab={remoteTab}
-          />
-        )}
-
-        {tab === "cleanup" && (
-          <SettingsModal.CleanupTab cleanupTab={cleanupTab} />
-        )}
-
-        {playbooksTab.editorState && (
-          <PlaybookEditorModal
-            mode={playbooksTab.editorState.mode}
-            playbook={playbooksTab.editorState.playbook}
-            existingNames={(playbooksTab.playbooks ?? [])
-              .filter(
-                (p) => p.slug !== playbooksTab.editorState?.playbook?.slug,
-              )
-              .map((p) => p.name)}
-            onSaved={() => {
-              playbooksTab.closeEditor();
-              void playbooksTab.reload();
-            }}
-            onClose={playbooksTab.closeEditor}
-          />
-        )}
-
-        {playbooksTab.deleteTarget && (
-          <PlaybookDeleteConfirm
-            playbook={playbooksTab.deleteTarget}
-            onClose={playbooksTab.closeDelete}
-            onDeleted={() => {
-              playbooksTab.closeDelete();
-              void playbooksTab.reload();
-            }}
-          />
-        )}
-      </Modal.Body>
-      <Modal.Actions>
-        {tab === "filters" ? (
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "flex-end",
-              flex: "0 0 auto",
-            }}
-          >
+          <div style={footerStyle}>
             <Button
               variant="primary"
-              onClick={() => {
-                firstTriggerRef.current?.focus();
-                void filters.handleSave();
-              }}
+              onClick={() => void filters.handleSave()}
               disabled={!filters.draft}
               loading={filters.saving}
             >
               {filters.saving ? "Saving filters…" : "Save Filters"}
             </Button>
           </div>
-        ) : tab === "cleanup" ? (
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "flex-end",
-              flex: "0 0 auto",
-            }}
-          >
+        )}
+        {tab === "cleanup" && (
+          <div style={footerStyle}>
             <Button
               variant="primary"
               onClick={() => void cleanupTab.handleSave()}
@@ -1393,13 +1503,40 @@ export function SettingsModal({
               {cleanupTab.saving ? "Saving…" : "Save"}
             </Button>
           </div>
-        ) : null}
-      </Modal.Actions>
-    </Modal>
+        )}
+      </div>
+
+      {playbooksTab.editorState && (
+        <PlaybookEditorModal
+          mode={playbooksTab.editorState.mode}
+          playbook={playbooksTab.editorState.playbook}
+          existingNames={(playbooksTab.playbooks ?? [])
+            .filter((p) => p.slug !== playbooksTab.editorState?.playbook?.slug)
+            .map((p) => p.name)}
+          onSaved={() => {
+            playbooksTab.closeEditor();
+            void playbooksTab.reload();
+          }}
+          onClose={playbooksTab.closeEditor}
+        />
+      )}
+
+      {playbooksTab.deleteTarget && (
+        <PlaybookDeleteConfirm
+          playbook={playbooksTab.deleteTarget}
+          onClose={playbooksTab.closeDelete}
+          onDeleted={() => {
+            playbooksTab.closeDelete();
+            void playbooksTab.reload();
+          }}
+        />
+      )}
+    </div>
   );
 }
 
-SettingsModal.FiltersTab = FiltersTabSection;
-SettingsModal.PlaybooksTab = PlaybooksTabSection;
-SettingsModal.RemoteTab = RemoteTabSection;
-SettingsModal.CleanupTab = CleanupTabSection;
+SettingsScreen.BackToApp = BackToAppButton;
+SettingsScreen.FiltersTab = FiltersTabSection;
+SettingsScreen.PlaybooksTab = PlaybooksTabSection;
+SettingsScreen.RemoteTab = RemoteTabSection;
+SettingsScreen.CleanupTab = CleanupTabSection;

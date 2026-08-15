@@ -28,10 +28,9 @@ import { ActivityDrawer } from "./features/activity/index.js";
 import {
   StartModal,
   CleanupModal,
-  SettingsModal,
   CreateTicketModal,
-  type SettingsTab,
 } from "./features/modals/index.js";
+import { SettingsScreen, type SettingsTab } from "./features/settings/index.js";
 import { FirstRunSetup } from "./features/setup/index.js";
 import { UpdateBanner } from "./features/update/index.js";
 import { cleanupCard as cleanupCardApi, getCard, getSetup } from "./lib/api.js";
@@ -396,6 +395,7 @@ export function App() {
           card={startCard}
           onClose={() => setStartRequest(null)}
           onEditPlaybooks={() => {
+            setStartRequest(null);
             setSettingsInitialTab("playbooks");
             setSettingsOpen(true);
           }}
@@ -416,7 +416,7 @@ export function App() {
         />
       )}
       {settingsOpen && (
-        <SettingsModal
+        <SettingsScreen
           initialTab={settingsInitialTab}
           tunnelState={tunnelState}
           onClose={() => {
