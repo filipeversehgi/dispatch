@@ -1029,6 +1029,24 @@ the card's `column` untouched so the user can Retry, and never logs the stderr c
 text never reaches a command line during any of this: it is written to a kickoff temp file and
 loaded into a per-session tmux buffer (Step 4), never passed as an argv element or shell string.
 
+**Claude launch arguments (Settings ▸ Models).** The "starting claude" step's argv is not
+hardcoded: it is `[claudePath, ...(hook flags), ...parseClaudeArgs(config.claudeArgs)]`, where
+`config.claudeArgs` is a free-text string persisted at `~/.dispatch/config.json`'s top-level
+`claudeArgs` key (default `--dangerously-skip-permissions` — Dispatch's original hardcoded
+behavior, so an un-migrated config is unchanged). `services/domain/claude-args.ts#parseClaudeArgs`
+tokenizes the string on whitespace, honoring single/double-quoted segments so a flag value
+containing spaces survives as one token; no shell is ever involved (`tmux new-session` execs the
+argv array directly), so this is quote-aware tokenizing only, never shell interpretation — no
+globbing, no `$VAR` expansion, no chaining. Both session-start (`services/orchestration/steps.ts`)
+and Resume/Restart (`services/orchestration/resume-session.ts`) read the same
+`getOrchestrationConfig()?.claudeArgs`, so a change in Settings applies to the very next
+start/resume/restart with no backend restart. `PUT /config/claude-args` accepts any string up to
+4000 characters — including empty, which means no extra arguments (Claude's normal permission
+prompts) rather than falling back to the default; the boot loader tolerates the same range with no
+upper bound to reject, matching `lastUsedPlaybook`'s tolerant-string posture rather than
+`cleanupDelayDays`'s reject-on-invalid one, because any string is a valid argv source once
+tokenized.
+
 ### Exec Chokepoint
 
 `adapters/exec.ts` `run()` is the **sole subprocess chokepoint** for the session layer: every
