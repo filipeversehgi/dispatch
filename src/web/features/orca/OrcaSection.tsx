@@ -43,7 +43,7 @@ export function OrcaSection({
         <span
           style={{
             fontSize: "var(--font-label)",
-            fontWeight: "var(--weight-semibold)",
+            fontWeight: "var(--weight-medium)",
             lineHeight: "var(--line-label)",
             letterSpacing: "0.04em",
             color: "var(--text-muted)",
@@ -55,9 +55,9 @@ export function OrcaSection({
           style={{
             background: `color-mix(in srgb, ${COLUMN_ACCENT[column]} 16%, var(--surface-column))`,
             color: COLUMN_ACCENT[column],
-            borderRadius: "var(--radius)",
+            borderRadius: "var(--radius-sm)",
             padding: "0 var(--space-xs)",
-            fontSize: "var(--font-label)",
+            fontSize: "var(--font-micro)",
           }}
         >
           {cards.length}
