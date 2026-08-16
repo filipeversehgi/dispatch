@@ -125,64 +125,86 @@ function checkRetiredPatterns() {
 }
 
 /**
- * File-scoped strip-padding gate (`NEW-18`). Deliberately NOT a `RETIRED_PATTERNS` entry: the
- * retired 16px literal below is a legitimate value in eight other files, so a global scan would
- * false-positive on all of them — this reads only `SyncStrip.tsx`, where that same literal is a
- * retired regression back to the strip's hardcoded pre-cascade padding. See
+ * The two sync-strip token cascades `SyncStrip.tsx` consumes, each asserted at both ends: the
+ * component reads the token, and `tokens.css` defines the wide value in `:root` plus the narrow
+ * value inside the 767px block.
+ */
+const STRIP_CASCADES = [
+  {
+    token: "--strip-padding",
+    consumer: 'padding: "0 var(--strip-padding)"',
+    wide: "--strip-padding: 24px;",
+    narrow: "--strip-padding: 16px;",
+    what: "strip padding",
+  },
+  {
+    token: "--strip-grid-columns",
+    consumer: 'gridTemplateColumns: "var(--strip-grid-columns)"',
+    wide: "--strip-grid-columns: minmax(0, 1fr) auto minmax(0, 1fr);",
+    narrow: "--strip-grid-columns: auto auto minmax(0, 1fr);",
+    what: "the strip zone grid",
+  },
+];
+
+/**
+ * File-scoped strip-cascade gate (`NEW-18`). Deliberately NOT a `RETIRED_PATTERNS` entry: the
+ * retired 16px padding literal below is a legitimate value in eight other files, so a global scan
+ * would false-positive on all of them — this reads only `SyncStrip.tsx`, where that same literal is
+ * a retired regression back to the strip's hardcoded pre-cascade padding. See
  * docs/ARCHITECTURE.md#app-shell-zones for the durable home.
  * @remarks Asserts the MECHANISM, not just the absence of the retired literal. A check that only
- * fenced the retired literal would pass unchanged against any padding implementation at all —
- * including one that silently reverted the cascade — so it could never fail for the reason it
- * exists. The three legs are the consumer (`SyncStrip.tsx` reads the token), the definition
- * (`tokens.css` defines both cascade steps, the narrow one inside the 767px block), and the
- * surviving retired-literal fence.
+ * fenced the retired literal would pass unchanged against any implementation at all — including one
+ * that silently reverted a cascade to a flat inline value — so it could never fail for the reason
+ * it exists. Both cascades are covered, because both encode a measured narrow-viewport fix that an
+ * inline value would erase while still rendering correctly at desktop widths, where it would go
+ * unnoticed.
  * @returns Violation report lines, one per defect; a single line if a subject file is missing.
  */
-function checkStripPadding() {
+function checkStripCascades() {
   if (!existsSync(SYNC_STRIP_PATH)) {
     return [
-      `${SYNC_STRIP_PATH}: file not found — NEW-18 cannot verify strip padding`,
+      `${SYNC_STRIP_PATH}: file not found — NEW-18 cannot verify the strip cascades`,
     ];
   }
   if (!existsSync(TOKENS_PATH)) {
     return [
-      `${TOKENS_PATH}: file not found — NEW-18 cannot verify strip padding`,
+      `${TOKENS_PATH}: file not found — NEW-18 cannot verify the strip cascades`,
     ];
   }
   const violations = [];
-  const lines = readFileSync(SYNC_STRIP_PATH, "utf8").split("\n");
-  let consumesToken = false;
-  lines.forEach((line, i) => {
-    if (line.includes('padding: "0 var(--strip-padding)"'))
-      consumesToken = true;
+  const strip = readFileSync(SYNC_STRIP_PATH, "utf8");
+  strip.split("\n").forEach((line, i) => {
     if (line.includes('padding: "0 var(--space-lg)"')) {
       violations.push(
         `${SYNC_STRIP_PATH}:${i + 1}: retired pattern NEW-18 — strip padding must read var(--strip-padding)`,
       );
     }
   });
-  if (!consumesToken) {
-    violations.push(
-      `${SYNC_STRIP_PATH}: retired pattern NEW-18 — strip padding must read var(--strip-padding)`,
-    );
-  }
 
   const tokens = readFileSync(TOKENS_PATH, "utf8");
   const rootBlock = tokens.slice(0, tokens.indexOf("@media"));
-  if (!rootBlock.includes("--strip-padding: 24px;")) {
-    violations.push(
-      `${TOKENS_PATH}: retired pattern NEW-18 — :root must define --strip-padding: 24px`,
-    );
-  }
   const narrowStart = tokens.indexOf("@media (max-width: 767px)");
   const narrowBlock =
     narrowStart === -1
       ? ""
       : tokens.slice(narrowStart, tokens.indexOf("}\n}", narrowStart));
-  if (!narrowBlock.includes("--strip-padding: 16px;")) {
-    violations.push(
-      `${TOKENS_PATH}: retired pattern NEW-18 — the max-width: 767px block must step --strip-padding to 16px`,
-    );
+
+  for (const cascade of STRIP_CASCADES) {
+    if (!strip.includes(cascade.consumer)) {
+      violations.push(
+        `${SYNC_STRIP_PATH}: retired pattern NEW-18 — ${cascade.what} must read var(${cascade.token})`,
+      );
+    }
+    if (!rootBlock.includes(cascade.wide)) {
+      violations.push(
+        `${TOKENS_PATH}: retired pattern NEW-18 — :root must define ${cascade.wide.replace(/;$/, "")}`,
+      );
+    }
+    if (!narrowBlock.includes(cascade.narrow)) {
+      violations.push(
+        `${TOKENS_PATH}: retired pattern NEW-18 — the max-width: 767px block must step ${cascade.narrow.replace(/;$/, "")}`,
+      );
+    }
   }
   return violations;
 }
@@ -362,24 +384,24 @@ function generateBaseline() {
 
 /**
  * Run the invariant-home diff, the global retired-pattern scan, the file-scoped
- * strip-padding check, the directory-scoped board reading-rhythm check, and the
+ * strip-cascade check, the directory-scoped board reading-rhythm check, and the
  * file-scoped terminal-client fence, then set the process exit code.
  * @remarks All five diff legs gate the exit, not just MISSING: in a
  * frozen-baseline world an EXTRA (homed but unbaselined — a typo'd ID in docs
  * or an unratified new ID in JSDoc) and an ORPHAN (present in src but
  * unbaselined) are always defects, and an informational-only leg would let
  * them accumulate silently through the body-comment deletion phases. The
- * retired-pattern leg, the strip-padding leg, the board reading-rhythm leg, and
+ * retired-pattern leg, the strip-cascade leg, the board reading-rhythm leg, and
  * the terminal-fence leg are all independent of the ID-baseline arithmetic
  * above — a design literal coming back, or the terminal-client subject set
  * changing, is a defect regardless of whether any invariant ID also moved.
- * The strip-padding leg (`NEW-18`), the board reading-rhythm leg (`NEW-19`),
+ * The strip-cascade leg (`NEW-18`), the board reading-rhythm leg (`NEW-19`),
  * and the terminal-fence leg (`NEW-20`) are all deliberately scoped (file- or
  * directory-scoped) rather than folded into `RETIRED_PATTERNS`, since each
  * pattern is legitimate outside its own scope. The terminal-fence leg only
  * proves the fenced SUBJECT SET is intact — it cannot prove the fenced files'
  * CONTENTS are unchanged; see `checkTerminalFence`'s own JSDoc for the split.
- * @returns Nothing; exits 0 iff MISSING, ORPHAN, EXTRA, RETIRED, STRIP PADDING, BOARD READING RHYTHM, and TERMINAL FENCE are all empty.
+ * @returns Nothing; exits 0 iff MISSING, ORPHAN, EXTRA, RETIRED, STRIP CASCADES, BOARD READING RHYTHM, and TERMINAL FENCE are all empty.
  */
 function run() {
   const home = new Set();
@@ -398,7 +420,7 @@ function run() {
   const orphan = diffSorted(present, baseline);
   const extra = diffSorted(home, baseline);
   const retired = checkRetiredPatterns();
-  const stripPadding = checkStripPadding();
+  const stripCascades = checkStripCascades();
   const boardReadingRhythm = checkBoardReadingRhythm();
   const terminalFence = checkTerminalFence();
 
@@ -406,7 +428,7 @@ function run() {
   report("ORPHAN  (present - baseline)", orphan);
   report("EXTRA   (home - baseline)", extra);
   report("RETIRED (design literals that came back)", retired);
-  report("STRIP PADDING (NEW-18)", stripPadding);
+  report("STRIP CASCADES (NEW-18)", stripCascades);
   report("BOARD READING RHYTHM (NEW-19)", boardReadingRhythm);
   report("TERMINAL FENCE (NEW-20)", terminalFence);
 
@@ -415,7 +437,7 @@ function run() {
     orphan.length +
     extra.length +
     retired.length +
-    stripPadding.length +
+    stripCascades.length +
     boardReadingRhythm.length +
     terminalFence.length;
   console.log(
@@ -427,8 +449,8 @@ function run() {
       (retired.length
         ? ` (${retired.length} retired pattern(s) reappeared)`
         : "") +
-      (stripPadding.length
-        ? ` (${stripPadding.length} strip-padding regression(s))`
+      (stripCascades.length
+        ? ` (${stripCascades.length} strip-cascade regression(s))`
         : "") +
       (boardReadingRhythm.length
         ? ` (${boardReadingRhythm.length} board reading-rhythm regression(s))`

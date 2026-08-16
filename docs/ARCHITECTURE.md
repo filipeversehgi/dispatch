@@ -1884,29 +1884,50 @@ sixth — proving only the fenced subject set, never the fenced contents, as sta
 
 ### App Shell Zones
 
-**The zone grid.** `SyncStrip.tsx` renders its three top-level children through a CSS grid with
-`gridTemplateColumns: "minmax(0, 1fr) auto minmax(0, 1fr)"`: column 1 is the identity zone (`Glyph` plus the DISPATCH
-wordmark, the glyph alone below 768px — see "Narrow-width behaviour" below), column 2 is the mode
-control and NOTHING else, and column 3 is the primary cluster
-(New Ticket, then Inbox while `viewMode === "board"`) followed by a hairline divider and the
-utility cluster (sync status, Activity, Settings). Column 2's exclusivity is load-bearing: because
-`justifySelf: "center"` places it against the grid's own centerline rather than against its
-neighbors' combined width, its horizontal position stays invariant when anything in column 1 or
-column 3 mounts or unmounts — specifically, it stops the Inbox button's `viewMode === "board"`
-guard from shifting the view switch sideways when Orca view unmounts Inbox. A flex row with
-`justifyContent: "space-between"` cannot make this guarantee, because removing a sibling from
-either side changes that side's total width and the center-weighted middle drifts with it. Both
-outer tracks are written `minmax(0, 1fr)` rather than the shorthand `1fr`, and identically so: `1fr`
-is `minmax(auto, 1fr)`, whose automatic minimum is the track's own min-content size, so a bare `1fr`
-track can never shrink below its content and the strip overflows the viewport instead. Writing both
-tracks the same way keeps them symmetric, which is what preserves column 2's centerline.
+**The zone grid.** `SyncStrip.tsx` renders its three top-level children through a CSS grid whose
+`gridTemplateColumns` reads `var(--strip-grid-columns)`: column 1 is the identity zone (`Glyph` plus
+the DISPATCH wordmark, the glyph alone below 768px — see "Narrow-width behaviour" below), column 2
+is the mode control and NOTHING else, and column 3 is the primary cluster (New Ticket, then Inbox
+while `viewMode === "board"`) followed by a hairline divider and the utility cluster (sync status,
+Activity, Settings). Column 2's exclusivity is load-bearing: because `justifySelf: "center"` places
+it against its own track rather than against its neighbors' combined width, its horizontal position
+stays invariant when anything in column 1 or column 3 mounts or unmounts — specifically, it stops
+the Inbox button's `viewMode === "board"` guard from shifting the view switch sideways when Orca
+view unmounts Inbox. A flex row with `justifyContent: "space-between"` cannot make this guarantee,
+because removing a sibling from either side changes that side's total width and the center-weighted
+middle drifts with it.
+
+**The template is width-dependent, and the two properties it trades are not the same property.**
+`--strip-grid-columns` cascades in `src/web/styles/tokens.css`, in the same
+`@media (max-width: 767px)` block as `--strip-padding` and `--strip-height`:
+
+| Width   | Template                             | Column 2                                     |
+| ------- | ------------------------------------ | -------------------------------------------- |
+| >=768px | `minmax(0, 1fr) auto minmax(0, 1fr)` | positionally invariant AND viewport-centred  |
+| <768px  | `auto auto minmax(0, 1fr)`           | positionally invariant, NOT viewport-centred |
+
+Both outer tracks are written with an explicit `minmax(0, …)` lower bound rather than the shorthand
+`1fr`, because `1fr` is `minmax(auto, 1fr)`, whose automatic minimum is the track's own min-content
+size — a bare `1fr` track can never shrink below its content, and the strip overflows the viewport
+instead.
+
+At >=768px the two outer tracks are symmetric, so column 2 lands on the viewport's centerline.
+Below 768px they deliberately are not, and the reason is measured: symmetric tracks mirror whatever
+slack column 1 does not use into column 1 anyway, and since the narrow identity zone is a glyph-only
+16px, that mirrored slack starved the sync-status region to 7px of box and **zero painted
+characters** at 390px. An `auto` first track hands that slack to column 3 instead, which is where
+the only elastic element lives. **Positional invariance survives the change** — the property the
+paragraph above calls load-bearing is immunity to a column-3 mount/unmount, and below 768px column 1
+is a fixed 16px that cannot vary with column 3 at all, so toggling Orca view leaves column 2's rect
+identical. What is given up below 768px is viewport _centring_, a different and weaker property,
+and it is given up only there.
 
 **The sync-status truncation chain.** The status string is the strip's only elastic element — every
 other item in the strip has a fixed width — and it is the one piece that can be arbitrarily long,
 since the server-supplied sync warning has no length bound. It is therefore the element that yields
 under pressure, and it does so by truncating to one ellipsized line rather than wrapping. That
 requires the WHOLE min-width chain to be able to shrink below min-content, not just the text node:
-the two outer grid tracks (`minmax(0, 1fr)`, above), then `rightZoneStyle` and
+the grid track column 3 resolves to (`minmax(0, …)` at every width, above), then `rightZoneStyle` and
 `utilityClusterStyle`, both flex containers whose default `min-width: auto` floors at min-content
 the same way, then the `role="status"` container itself, which carries `minWidth: 0` together with
 `whiteSpace: "nowrap"`, `overflow: "hidden"` and `textOverflow: "ellipsis"`. Any one link left out
@@ -1958,17 +1979,18 @@ top-level chrome slot for a sidebar to occupy without a structural change to `Ap
 This is recorded here, as a written decision with a durable artifact, specifically so it cannot
 silently reopen in a later phase the way an unrecorded non-action would.
 
-**`NEW-18`.** The strip's horizontal padding is `var(--strip-padding)`, written once in
-`stripContainerStyle` in `SyncStrip.tsx` and resolved by a responsive cascade in
-`src/web/styles/tokens.css` — 24px in `:root`, stepped to 16px inside the same
-`@media (max-width: 767px)` block that already steps `--strip-height`. The cascade is CSS, not a
-`useMediaQuery` branch, deliberately: a custom property re-resolves on a breakpoint cross with zero
-React re-render, whereas an inline `narrow ? "0 16px" : "0 24px"` would re-render the whole strip
-while passing every geometry check. The "written once" guarantee is unchanged — the component names
-the token, never a value. `scripts/check-invariants.mjs` fails the build unless all three hold: the
-component consumes `var(--strip-padding)`, `tokens.css` defines both cascade steps, and the retired
+**`NEW-18`.** The strip carries two responsive token cascades, both defined in
+`src/web/styles/tokens.css` and both stepped inside the same `@media (max-width: 767px)` block that
+already steps `--strip-height`: `--strip-padding` (24px, stepped to 16px) and
+`--strip-grid-columns` (symmetric, stepped to the narrow asymmetric template above). Each is
+written once in `stripContainerStyle` in `SyncStrip.tsx` as a bare `var(…)` reference. Both cascades
+are CSS rather than a `useMediaQuery` branch, deliberately: a custom property re-resolves on a
+breakpoint cross with zero React re-render, whereas an inline `narrow ? … : …` would re-render the
+whole strip while passing every geometry check. The "written once" guarantee is unchanged — the
+component names the token, never a value. `scripts/check-invariants.mjs` fails the build unless the
+component consumes both tokens, `tokens.css` defines both cascade steps for each, and the retired
 `padding: "0 var(--space-lg)"` (16px) literal has not returned to that file. This check is
-deliberately file-scoped (`checkStripPadding`) rather than a `RETIRED_PATTERNS` entry, because the
+deliberately file-scoped (`checkStripCascades`) rather than a `RETIRED_PATTERNS` entry, because the
 retired literal is a legitimate value in eight other files (`SearchBox.tsx`, `UpdateBanner.tsx`,
 `MoveToPicker.tsx`, `FirstRunSetup.tsx`, `CleanupModal.tsx`, `ActivityDrawer.tsx`, `Button.tsx`,
 `OrcaSection.tsx`) and a global substring scan would false-positive on all of them. Mirroring

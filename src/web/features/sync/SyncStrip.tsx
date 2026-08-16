@@ -15,7 +15,7 @@ import { IconButton } from "../../primitives/IconButton.js";
 
 const stripContainerStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(0, 1fr) auto minmax(0, 1fr)",
+  gridTemplateColumns: "var(--strip-grid-columns)",
   alignItems: "center",
   height: "var(--strip-height)",
   flex: "0 0 var(--strip-height)",

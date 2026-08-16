@@ -48,6 +48,7 @@
   /* Chrome dimensions. */
   --strip-height: 56px;
   --strip-padding: 24px; /* sync-strip horizontal padding; swapped per breakpoint below */
+  --strip-grid-columns: minmax(0, 1fr) auto minmax(0, 1fr); /* sync-strip zone grid; swapped per breakpoint below */
   --column-header-height: 32px;
   --radius-sm: 4px; /* chips and badges, up to ~19-27px tall */
   --radius: 6px;
@@ -104,6 +105,12 @@
        viewport edge at 390px (Activity +14.53px, Settings +46.53px, measured),
        so the strip drops to the low end of the researched 16-24px range here. */
     --strip-padding: 16px;
+    /* Symmetric outer tracks mirror the slack the 16px glyph-only identity zone
+       does not use, starving the sync status to 7px at 390px (measured). Column 1
+       is a fixed 16px here, so an `auto` track cannot vary with column 3 and the
+       mode control keeps its positional invariance; only viewport centring is
+       traded, and only below 768px. */
+    --strip-grid-columns: auto auto minmax(0, 1fr);
   }
 }
 
