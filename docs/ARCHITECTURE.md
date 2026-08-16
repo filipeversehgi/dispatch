@@ -1885,7 +1885,7 @@ sixth — proving only the fenced subject set, never the fenced contents, as sta
 ### App Shell Zones
 
 **The zone grid.** `SyncStrip.tsx` renders its three top-level children through a CSS grid with
-`gridTemplateColumns: "1fr auto 1fr"`: column 1 is the identity zone (`Glyph` plus the DISPATCH
+`gridTemplateColumns: "minmax(0, 1fr) auto minmax(0, 1fr)"`: column 1 is the identity zone (`Glyph` plus the DISPATCH
 wordmark), column 2 is the mode control and NOTHING else, and column 3 is the primary cluster
 (New Ticket, then Inbox while `viewMode === "board"`) followed by a hairline divider and the
 utility cluster (sync status, Activity, Settings). Column 2's exclusivity is load-bearing: because
@@ -1894,7 +1894,27 @@ neighbors' combined width, its horizontal position stays invariant when anything
 column 3 mounts or unmounts — specifically, it stops the Inbox button's `viewMode === "board"`
 guard from shifting the view switch sideways when Orca view unmounts Inbox. A flex row with
 `justifyContent: "space-between"` cannot make this guarantee, because removing a sibling from
-either side changes that side's total width and the center-weighted middle drifts with it.
+either side changes that side's total width and the center-weighted middle drifts with it. Both
+outer tracks are written `minmax(0, 1fr)` rather than the shorthand `1fr`, and identically so: `1fr`
+is `minmax(auto, 1fr)`, whose automatic minimum is the track's own min-content size, so a bare `1fr`
+track can never shrink below its content and the strip overflows the viewport instead. Writing both
+tracks the same way keeps them symmetric, which is what preserves column 2's centerline.
+
+**The sync-status truncation chain.** The status string is the strip's only elastic element — every
+other item in the strip has a fixed width — and it is the one piece that can be arbitrarily long,
+since the server-supplied sync warning has no length bound. It is therefore the element that yields
+under pressure, and it does so by truncating to one ellipsized line rather than wrapping. That
+requires the WHOLE min-width chain to be able to shrink below min-content, not just the text node:
+the two outer grid tracks (`minmax(0, 1fr)`, above), then `rightZoneStyle` and
+`utilityClusterStyle`, both flex containers whose default `min-width: auto` floors at min-content
+the same way, then the `role="status"` container itself, which carries `minWidth: 0` together with
+`whiteSpace: "nowrap"`, `overflow: "hidden"` and `textOverflow: "ellipsis"`. Any one link left out
+silently restores the min-content floor and the ellipsis never engages, which is why the chain is
+recorded here as a unit rather than as four independent style properties. The status dot keeps
+`flex: "0 0 auto"` so it is never the thing that truncates. The truncation is CSS-only and the
+region's `textContent` is always the complete string: `aria-live="polite"` announces the full text
+regardless of what is painted, so no `title` attribute and no shortened substitute string may be
+added here.
 
 **The weight tiers.** Within column 3, the primary cluster (New Ticket, Inbox) sits nearest the
 grid's center and the utility cluster (sync status, Activity, Settings) sits nearest the edge,

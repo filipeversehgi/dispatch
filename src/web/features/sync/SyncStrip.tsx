@@ -15,7 +15,7 @@ import { IconButton } from "../../primitives/IconButton.js";
 
 const stripContainerStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "1fr auto 1fr",
+  gridTemplateColumns: "minmax(0, 1fr) auto minmax(0, 1fr)",
   alignItems: "center",
   height: "var(--strip-height)",
   flex: "0 0 var(--strip-height)",
@@ -59,6 +59,7 @@ const rightZoneStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "flex-end",
+  minWidth: 0,
 };
 
 const primaryClusterStyle: CSSProperties = {
@@ -69,6 +70,7 @@ const primaryClusterStyle: CSSProperties = {
 const utilityClusterStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
+  minWidth: 0,
 };
 
 const dividerStyle: CSSProperties = {
@@ -307,7 +309,7 @@ export function SyncStrip({
                     background:
                       "color-mix(in srgb, var(--accent) 16%, var(--surface-column))",
                     color: "var(--accent)",
-                    borderRadius: "var(--radius)",
+                    borderRadius: "var(--radius-sm)",
                     padding: "0 var(--space-xs)",
                     fontSize: "var(--font-label)",
                     fontWeight: "var(--weight-semibold)",
@@ -329,6 +331,10 @@ export function SyncStrip({
             style={{
               display: "flex",
               alignItems: "center",
+              minWidth: 0,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
               color: disconnected ? "var(--destructive)" : "var(--text-muted)",
               fontWeight: "var(--weight-medium)",
             }}
