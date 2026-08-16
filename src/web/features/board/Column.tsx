@@ -315,6 +315,7 @@ export function Column({
           top: 0,
           zIndex: 1,
           height: "var(--column-header-height)",
+          flexShrink: 0,
           display: "flex",
           alignItems: "center",
           gap: "var(--space-xs)",
