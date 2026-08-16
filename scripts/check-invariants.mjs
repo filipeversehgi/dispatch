@@ -50,6 +50,7 @@ const SKIP_DIR = join("src", "web", "dist");
 const DOCS_PATH = join("docs", "ARCHITECTURE.md");
 const BASELINE_PATH = join("scripts", "invariant-baseline.txt");
 const SYNC_STRIP_PATH = join("src", "web", "features", "sync", "SyncStrip.tsx");
+const TOKENS_PATH = join("src", "web", "styles", "tokens.css");
 const BOARD_DIR = join("src", "web", "features", "board");
 const WEB_DIR = join("src", "web");
 const TERMINAL_CLIENT_PATHS = [
@@ -127,9 +128,15 @@ function checkRetiredPatterns() {
  * File-scoped strip-padding gate (`NEW-18`). Deliberately NOT a `RETIRED_PATTERNS` entry: the
  * retired 16px literal below is a legitimate value in eight other files, so a global scan would
  * false-positive on all of them — this reads only `SyncStrip.tsx`, where that same literal is a
- * retired regression back to the strip's pre-24px padding. See docs/ARCHITECTURE.md#app-shell-zones
- * for the durable home.
- * @returns Violation report lines, one per matching line; a single line if the file is missing.
+ * retired regression back to the strip's hardcoded pre-cascade padding. See
+ * docs/ARCHITECTURE.md#app-shell-zones for the durable home.
+ * @remarks Asserts the MECHANISM, not just the absence of the retired literal. A check that only
+ * fenced the retired literal would pass unchanged against any padding implementation at all —
+ * including one that silently reverted the cascade — so it could never fail for the reason it
+ * exists. The three legs are the consumer (`SyncStrip.tsx` reads the token), the definition
+ * (`tokens.css` defines both cascade steps, the narrow one inside the 767px block), and the
+ * surviving retired-literal fence.
+ * @returns Violation report lines, one per defect; a single line if a subject file is missing.
  */
 function checkStripPadding() {
   if (!existsSync(SYNC_STRIP_PATH)) {
@@ -137,15 +144,46 @@ function checkStripPadding() {
       `${SYNC_STRIP_PATH}: file not found — NEW-18 cannot verify strip padding`,
     ];
   }
+  if (!existsSync(TOKENS_PATH)) {
+    return [
+      `${TOKENS_PATH}: file not found — NEW-18 cannot verify strip padding`,
+    ];
+  }
   const violations = [];
   const lines = readFileSync(SYNC_STRIP_PATH, "utf8").split("\n");
+  let consumesToken = false;
   lines.forEach((line, i) => {
+    if (line.includes('padding: "0 var(--strip-padding)"'))
+      consumesToken = true;
     if (line.includes('padding: "0 var(--space-lg)"')) {
       violations.push(
-        `${SYNC_STRIP_PATH}:${i + 1}: retired pattern NEW-18 — strip padding must stay var(--space-xl)`,
+        `${SYNC_STRIP_PATH}:${i + 1}: retired pattern NEW-18 — strip padding must read var(--strip-padding)`,
       );
     }
   });
+  if (!consumesToken) {
+    violations.push(
+      `${SYNC_STRIP_PATH}: retired pattern NEW-18 — strip padding must read var(--strip-padding)`,
+    );
+  }
+
+  const tokens = readFileSync(TOKENS_PATH, "utf8");
+  const rootBlock = tokens.slice(0, tokens.indexOf("@media"));
+  if (!rootBlock.includes("--strip-padding: 24px;")) {
+    violations.push(
+      `${TOKENS_PATH}: retired pattern NEW-18 — :root must define --strip-padding: 24px`,
+    );
+  }
+  const narrowStart = tokens.indexOf("@media (max-width: 767px)");
+  const narrowBlock =
+    narrowStart === -1
+      ? ""
+      : tokens.slice(narrowStart, tokens.indexOf("}\n}", narrowStart));
+  if (!narrowBlock.includes("--strip-padding: 16px;")) {
+    violations.push(
+      `${TOKENS_PATH}: retired pattern NEW-18 — the max-width: 767px block must step --strip-padding to 16px`,
+    );
+  }
   return violations;
 }
 

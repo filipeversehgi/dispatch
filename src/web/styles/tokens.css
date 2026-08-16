@@ -47,6 +47,7 @@
 
   /* Chrome dimensions. */
   --strip-height: 56px;
+  --strip-padding: 24px; /* sync-strip horizontal padding; swapped per breakpoint below */
   --column-header-height: 32px;
   --radius-sm: 4px; /* chips and badges, up to ~19-27px tall */
   --radius: 6px;
@@ -99,6 +100,10 @@
     /* 56px costs a card row below 768px but zero rows at the three wider
        breakpoints, so the strip only shrinks back to 44px here. */
     --strip-height: 44px;
+    /* 24px of horizontal padding put the two rightmost strip controls past the
+       viewport edge at 390px (Activity +14.53px, Settings +46.53px, measured),
+       so the strip drops to the low end of the researched 16-24px range here. */
+    --strip-padding: 16px;
   }
 }
 

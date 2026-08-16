@@ -19,7 +19,7 @@ const stripContainerStyle: CSSProperties = {
   alignItems: "center",
   height: "var(--strip-height)",
   flex: "0 0 var(--strip-height)",
-  padding: "0 var(--space-xl)",
+  padding: "0 var(--strip-padding)",
   borderBottom: "1px solid var(--border)",
   background: "var(--surface-column)",
   fontSize: "var(--font-label)",

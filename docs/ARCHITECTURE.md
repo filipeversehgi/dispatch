@@ -1877,7 +1877,8 @@ global retired-pattern scan over `src/**/*.{ts,tsx}` catches the retired box-sha
 expression, the retired float-shadow literal, and a hardcoded wordmark weight reappearing
 anywhere in source; a second, file-scoped check (`checkStripPadding`, `NEW-18`, see
 [App Shell Zones](#app-shell-zones)) covers a fourth retired literal that the global scan cannot
-safely reach; a third, directory-scoped check (`checkBoardReadingRhythm`, `NEW-19`, above) covers
+safely reach, and additionally asserts the padding cascade's own mechanism so the check cannot pass
+against an implementation that quietly dropped it; a third, directory-scoped check (`checkBoardReadingRhythm`, `NEW-19`, above) covers
 the fifth; and a fourth, file-scoped check (`checkTerminalFence`, `NEW-20`, above) covers the
 sixth — proving only the fenced subject set, never the fenced contents, as stated above.
 
@@ -1925,12 +1926,18 @@ top-level chrome slot for a sidebar to occupy without a structural change to `Ap
 This is recorded here, as a written decision with a durable artifact, specifically so it cannot
 silently reopen in a later phase the way an unrecorded non-action would.
 
-**`NEW-18`.** The strip's horizontal padding is `var(--space-xl)` (24px), written once in
-`stripContainerStyle` in `SyncStrip.tsx`, flat at every breakpoint — no responsive padding
-cascade, unlike `--strip-height`. `scripts/check-invariants.mjs` fails the build if the retired
-`padding: "0 var(--space-lg)"` (16px) literal returns to that file. This check is deliberately
-file-scoped (`checkStripPadding`) rather than a `RETIRED_PATTERNS` entry, because the identical
-literal is a legitimate value in eight other files (`SearchBox.tsx`, `UpdateBanner.tsx`,
+**`NEW-18`.** The strip's horizontal padding is `var(--strip-padding)`, written once in
+`stripContainerStyle` in `SyncStrip.tsx` and resolved by a responsive cascade in
+`src/web/styles/tokens.css` — 24px in `:root`, stepped to 16px inside the same
+`@media (max-width: 767px)` block that already steps `--strip-height`. The cascade is CSS, not a
+`useMediaQuery` branch, deliberately: a custom property re-resolves on a breakpoint cross with zero
+React re-render, whereas an inline `narrow ? "0 16px" : "0 24px"` would re-render the whole strip
+while passing every geometry check. The "written once" guarantee is unchanged — the component names
+the token, never a value. `scripts/check-invariants.mjs` fails the build unless all three hold: the
+component consumes `var(--strip-padding)`, `tokens.css` defines both cascade steps, and the retired
+`padding: "0 var(--space-lg)"` (16px) literal has not returned to that file. This check is
+deliberately file-scoped (`checkStripPadding`) rather than a `RETIRED_PATTERNS` entry, because the
+retired literal is a legitimate value in eight other files (`SearchBox.tsx`, `UpdateBanner.tsx`,
 `MoveToPicker.tsx`, `FirstRunSetup.tsx`, `CleanupModal.tsx`, `ActivityDrawer.tsx`, `Button.tsx`,
 `OrcaSection.tsx`) and a global substring scan would false-positive on all of them. Mirroring
 `NEW-17`'s own resolution: `src/web/**/*.tsx` carries zero comments under this repo's comment
