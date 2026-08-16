@@ -113,9 +113,12 @@ export function App() {
   });
 
   const [activityOpen, setActivityOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<"board" | "orca">(() => {
+  const [viewMode, setViewMode] = useState<"board" | "workspace">(() => {
     try {
-      return localStorage.getItem("dsp.view") === "orca" ? "orca" : "board";
+      const stored = localStorage.getItem("dsp.view");
+      return stored === "workspace" || stored === "orca"
+        ? "workspace"
+        : "board";
     } catch {
       return "board";
     }
@@ -183,7 +186,7 @@ export function App() {
   }
 
   useEffect(() => {
-    if (viewMode !== "orca" || selectedCard != null || board == null) {
+    if (viewMode !== "workspace" || selectedCard != null || board == null) {
       return;
     }
     const id = mostRecentCardId(lastOpened, board.cards);
@@ -330,13 +333,13 @@ export function App() {
             viewMode={viewMode}
             onSelectViewMode={(mode) => {
               setViewMode(mode);
-              if (mode === "orca") setInboxOpen(false);
+              if (mode === "workspace") setInboxOpen(false);
             }}
           />
         </>
       }
       content={
-        viewMode === "orca" ? (
+        viewMode === "workspace" ? (
           <OrcaView
             board={board}
             selectedCardId={selectedCard ? selectedCardId : null}
@@ -385,7 +388,7 @@ export function App() {
           }}
           onStartRequest={requestStart}
           onCleanupRequest={setCleanupCardId}
-          docked={viewMode === "orca"}
+          docked={viewMode === "workspace"}
         />
       }
     >

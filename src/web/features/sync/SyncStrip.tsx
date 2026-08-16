@@ -6,10 +6,13 @@ import {
   PanelLeft,
   Plus,
   Settings,
+  type LucideIcon,
 } from "lucide-react";
 import type { ConnectionStatus } from "../../hooks/useBoardStream.js";
 import { Glyph } from "../../primitives/Glyph.js";
 import { IconButton } from "../../primitives/IconButton.js";
+
+type ViewMode = "board" | "workspace";
 
 interface SyncStripProps {
   syncedAt: string | null;
@@ -25,8 +28,100 @@ interface SyncStripProps {
   inboxCount?: number;
   inboxOpen?: boolean;
   onOpenCreateTicket?: () => void;
-  viewMode?: "board" | "orca";
-  onSelectViewMode?: (mode: "board" | "orca") => void;
+  viewMode?: ViewMode;
+  onSelectViewMode?: (mode: ViewMode) => void;
+}
+
+const focusRing = (on: boolean): string =>
+  on ? "0 0 0 2px var(--accent)" : "none";
+
+const VIEW_MODES: { id: ViewMode; label: string; icon: LucideIcon }[] = [
+  { id: "board", label: "Board", icon: Kanban },
+  { id: "workspace", label: "Workspace", icon: PanelLeft },
+];
+
+interface ViewModeSegmentProps {
+  icon: LucideIcon;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}
+
+function ViewModeSegment({
+  icon: Icon,
+  label,
+  active,
+  onClick,
+}: ViewModeSegmentProps) {
+  const [hover, setHover] = useState(false);
+  const [focus, setFocus] = useState(false);
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onFocus={(e) => setFocus(e.currentTarget.matches(":focus-visible"))}
+      onBlur={() => setFocus(false)}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "var(--space-xs)",
+        height: "26px",
+        padding: "0 var(--space-sm)",
+        border: "none",
+        borderRadius: "calc(var(--radius) - 2px)",
+        background:
+          active || hover ? "var(--surface-card-hover)" : "transparent",
+        color: active ? "var(--accent)" : "var(--text-muted)",
+        fontFamily: "var(--font-ui)",
+        fontSize: "var(--font-label)",
+        fontWeight: "var(--weight-semibold)",
+        lineHeight: "var(--line-label)",
+        cursor: "pointer",
+        outline: "none",
+        boxShadow: focusRing(focus),
+      }}
+    >
+      <Icon size={14} strokeWidth={2} aria-hidden="true" />
+      {label}
+    </button>
+  );
+}
+
+interface ViewModeSwitchProps {
+  viewMode?: ViewMode;
+  onSelect?: (mode: ViewMode) => void;
+}
+
+function ViewModeSwitch({ viewMode, onSelect }: ViewModeSwitchProps) {
+  return (
+    <div
+      role="tablist"
+      aria-label="View"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "2px",
+        padding: "2px",
+        background: "var(--surface-card)",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius)",
+      }}
+    >
+      {VIEW_MODES.map((mode) => (
+        <ViewModeSegment
+          key={mode.id}
+          icon={mode.icon}
+          label={mode.label}
+          active={viewMode === mode.id}
+          onClick={() => onSelect?.(mode.id)}
+        />
+      ))}
+    </div>
+  );
 }
 
 function formatSynced(syncedTs: number, now: number): string {
@@ -116,9 +211,9 @@ export function SyncStrip({
       style={{
         height: "var(--strip-height)",
         flex: "0 0 var(--strip-height)",
-        display: "flex",
+        display: "grid",
+        gridTemplateColumns: "1fr auto 1fr",
         alignItems: "center",
-        justifyContent: "space-between",
         padding: "0 var(--space-lg)",
         borderBottom: "1px solid var(--border)",
         background: "var(--surface-column)",
@@ -147,10 +242,14 @@ export function SyncStrip({
           DISPATCH
         </span>
       </div>
+
+      <ViewModeSwitch viewMode={viewMode} onSelect={onSelectViewMode} />
+
       <div
         style={{
           display: "flex",
           alignItems: "center",
+          justifySelf: "end",
           gap: "var(--space-sm)",
         }}
       >
@@ -183,38 +282,6 @@ export function SyncStrip({
         >
           <Plus size={16} strokeWidth={2} aria-hidden="true" />
         </IconButton>
-        <div style={{ display: "flex", gap: "var(--space-xs)" }}>
-          <IconButton
-            aria-label="Board view"
-            title="Board view"
-            aria-pressed={viewMode === "board"}
-            onClick={() => onSelectViewMode?.("board")}
-            style={{
-              color:
-                viewMode === "board" ? "var(--accent)" : "var(--text-muted)",
-              ...(viewMode === "board"
-                ? { background: "var(--surface-card-hover)" }
-                : {}),
-            }}
-          >
-            <Kanban size={16} />
-          </IconButton>
-          <IconButton
-            aria-label="Orca view"
-            title="Orca view"
-            aria-pressed={viewMode === "orca"}
-            onClick={() => onSelectViewMode?.("orca")}
-            style={{
-              color:
-                viewMode === "orca" ? "var(--accent)" : "var(--text-muted)",
-              ...(viewMode === "orca"
-                ? { background: "var(--surface-card-hover)" }
-                : {}),
-            }}
-          >
-            <PanelLeft size={16} />
-          </IconButton>
-        </div>
         {viewMode === "board" && (
           <div style={{ position: "relative", display: "flex" }}>
             <IconButton
