@@ -121,12 +121,25 @@ export function App() {
     }
   });
   const [inboxOpen, setInboxOpen] = useState(false);
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("dsp.sound") !== "off";
+    } catch {
+      return true;
+    }
+  });
 
   useEffect(() => {
     try {
       localStorage.setItem("dsp.view", viewMode);
     } catch {}
   }, [viewMode]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("dsp.sound", soundEnabled ? "on" : "off");
+    } catch {}
+  }, [soundEnabled]);
 
   const lastOpened = useLastOpened();
   const newestTs = feed.events[0]?.ts;
@@ -177,7 +190,7 @@ export function App() {
     if (id != null) setSelectedCardId(id);
   }, [viewMode, selectedCard, board, lastOpened]);
 
-  useTransitionNotifications(board, connection, selectCard);
+  useTransitionNotifications(board, connection, selectCard, soundEnabled);
 
   const cardIdentifiers: Record<string, string> = {};
   for (const card of board?.cards ?? []) {
@@ -419,6 +432,8 @@ export function App() {
         <SettingsScreen
           initialTab={settingsInitialTab}
           tunnelState={tunnelState}
+          soundEnabled={soundEnabled}
+          onToggleSound={setSoundEnabled}
           onClose={() => {
             setSettingsOpen(false);
             setSettingsInitialTab("filters");

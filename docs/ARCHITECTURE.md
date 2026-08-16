@@ -449,6 +449,15 @@ disallowed on some webviews) — a cosmetic notification must never crash the bo
 notification focuses the window and opens that card's DetailPanel; the title uses the
 human-readable column label and the card identifier, never the raw column key.
 
+The same transition batch also drives the gentle chime (`web/lib/chime.ts#playChime`, synthesized
+via Web Audio oscillators — no bundled audio asset): gated independently of the Notification
+permission by `soundEnabled` (Settings ▸ Notifications, a per-browser `localStorage` preference —
+`dsp.sound` — lifted into `App.tsx` state and threaded into the hook as a parameter, never into
+`~/.dispatch/config.json`, since it is a per-device preference, not shared server config). It plays
+at most ONCE per effect run regardless of how many cards transition in that snapshot, so a burst of
+simultaneous arrivals stays one ding rather than an overlapping barrage; each transitioned card
+still gets its own desktop Notification independently.
+
 The related unseen-activity dot (the SAME attention surface, a different trigger) is homed in
 [Watcher Discriminator](#watcher-discriminator) — `@see` that section for the dot's
 seed-on-first-observation baseline and why it deliberately carries NO flip-back debounce.

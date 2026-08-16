@@ -10,6 +10,7 @@ import {
 } from "react";
 import {
   ArrowLeft,
+  Bell,
   Bot,
   ClipboardList,
   Copy,
@@ -47,6 +48,7 @@ import {
   saveClaudeArgs,
   saveLinearFilters,
 } from "../../lib/api.js";
+import { playChime } from "../../lib/chime.js";
 import { Button } from "../../primitives/Button.js";
 import { Field } from "../../primitives/Field.js";
 import { IconButton } from "../../primitives/IconButton.js";
@@ -58,7 +60,13 @@ import { WorkspaceAdd } from "../workspaces/index.js";
 import { PlaybookEditorModal } from "./PlaybookEditorModal.js";
 
 export type SettingsTab =
-  "filters" | "models" | "workspaces" | "playbooks" | "remote" | "cleanup";
+  | "filters"
+  | "models"
+  | "workspaces"
+  | "playbooks"
+  | "remote"
+  | "notifications"
+  | "cleanup";
 
 interface PlaybookListRowProps {
   playbook: Playbook;
@@ -1060,6 +1068,114 @@ function RemoteTabSection({ tunnelState, remoteTab }: RemoteTabSectionProps) {
   );
 }
 
+type DesktopPermission = "granted" | "denied" | "default" | "unsupported";
+
+function useDesktopPermission(): {
+  status: DesktopPermission;
+  request: () => void;
+} {
+  const [status, setStatus] = useState<DesktopPermission>(() =>
+    "Notification" in window ? Notification.permission : "unsupported",
+  );
+
+  const request = useCallback(() => {
+    if (!("Notification" in window)) return;
+    void Notification.requestPermission().then((result) => {
+      setStatus(result);
+    });
+  }, []);
+
+  return { status, request };
+}
+
+interface NotificationsTabSectionProps {
+  soundEnabled: boolean;
+  onToggleSound: (enabled: boolean) => void;
+}
+
+function NotificationsTabSection({
+  soundEnabled,
+  onToggleSound,
+}: NotificationsTabSectionProps) {
+  const { status, request } = useDesktopPermission();
+  const [soundFocus, setSoundFocus] = useState(false);
+
+  return (
+    <div style={remoteSectionStyle}>
+      <div style={remoteFieldBlockStyle}>
+        <Field>Desktop notifications</Field>
+        {status === "granted" && (
+          <RemoteStatusRow
+            color="var(--status-ok)"
+            text="Enabled — you'll get a system notification when a card needs your input or an agent finishes."
+          />
+        )}
+        {status === "denied" && (
+          <RemoteStatusRow
+            color="var(--status-down)"
+            text="Blocked — enable notifications for this site in your browser settings."
+          />
+        )}
+        {status === "unsupported" && (
+          <span style={remoteHelperTextStyle}>
+            Not supported in this browser.
+          </span>
+        )}
+        {status === "default" && (
+          <>
+            <span style={remoteBodyTextStyle}>
+              Get a system notification when a card needs your input or an agent
+              finishes.
+            </span>
+            <div>
+              <Button variant="secondary" onClick={request}>
+                Enable notifications
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+
+      <div style={remoteFieldBlockStyle}>
+        <Field>Sound</Field>
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--space-sm)",
+            cursor: "pointer",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={soundEnabled}
+            onChange={() => onToggleSound(!soundEnabled)}
+            onFocus={(e) =>
+              setSoundFocus(e.currentTarget.matches(":focus-visible"))
+            }
+            onBlur={() => setSoundFocus(false)}
+            style={{
+              accentColor: "var(--accent)",
+              borderRadius: "var(--radius)",
+              outline: "none",
+              boxShadow: focusRing(soundFocus),
+              flex: "0 0 auto",
+            }}
+          />
+          <span style={remoteBodyTextStyle}>
+            Play a gentle chime for the same moments
+          </span>
+        </label>
+        <div>
+          <Button variant="secondary" onClick={() => playChime()}>
+            Test sound
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface CleanupTab {
   draftDays: string;
   setDraftDays: Dispatch<SetStateAction<string>>;
@@ -1645,6 +1761,7 @@ const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: "workspaces", label: "Workspaces", icon: FolderGit2 },
   { id: "playbooks", label: "Playbooks", icon: ClipboardList },
   { id: "remote", label: "Remote", icon: Globe },
+  { id: "notifications", label: "Notifications", icon: Bell },
   { id: "cleanup", label: "Cleanup", icon: Trash2 },
 ];
 
@@ -1810,12 +1927,16 @@ interface SettingsScreenProps {
   onClose: () => void;
   initialTab?: SettingsTab;
   tunnelState: TunnelState;
+  soundEnabled: boolean;
+  onToggleSound: (enabled: boolean) => void;
 }
 
 export function SettingsScreen({
   onClose,
   initialTab = "filters",
   tunnelState,
+  soundEnabled,
+  onToggleSound,
 }: SettingsScreenProps) {
   const [tab, setTab] = useState<SettingsTab>(initialTab);
   const [entered, setEntered] = useState(false);
@@ -1908,6 +2029,12 @@ export function SettingsScreen({
               remoteTab={remoteTab}
             />
           )}
+          {tab === "notifications" && (
+            <SettingsScreen.NotificationsTab
+              soundEnabled={soundEnabled}
+              onToggleSound={onToggleSound}
+            />
+          )}
           {tab === "cleanup" && (
             <SettingsScreen.CleanupTab cleanupTab={cleanupTab} />
           )}
@@ -1986,4 +2113,5 @@ SettingsScreen.ModelsTab = ModelsTabSection;
 SettingsScreen.WorkspacesTab = WorkspacesTabSection;
 SettingsScreen.PlaybooksTab = PlaybooksTabSection;
 SettingsScreen.RemoteTab = RemoteTabSection;
+SettingsScreen.NotificationsTab = NotificationsTabSection;
 SettingsScreen.CleanupTab = CleanupTabSection;
