@@ -61,7 +61,7 @@ const monoScrollStyle: CSSProperties = {
   maxHeight: "240px",
   overflowY: "auto",
   fontFamily: "var(--font-mono)",
-  fontSize: "var(--font-label)",
+  fontSize: "var(--font-micro)",
   fontWeight: "var(--weight-regular)",
   lineHeight: "var(--line-label)",
   color: "var(--text-muted)",
@@ -71,7 +71,7 @@ const monoScrollStyle: CSSProperties = {
 
 const monoClampStyle: CSSProperties = {
   fontFamily: "var(--font-mono)",
-  fontSize: "var(--font-label)",
+  fontSize: "var(--font-micro)",
   fontWeight: "var(--weight-regular)",
   lineHeight: "var(--line-label)",
   color: "var(--text-muted)",
