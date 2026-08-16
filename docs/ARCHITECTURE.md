@@ -1886,7 +1886,8 @@ sixth — proving only the fenced subject set, never the fenced contents, as sta
 
 **The zone grid.** `SyncStrip.tsx` renders its three top-level children through a CSS grid with
 `gridTemplateColumns: "minmax(0, 1fr) auto minmax(0, 1fr)"`: column 1 is the identity zone (`Glyph` plus the DISPATCH
-wordmark), column 2 is the mode control and NOTHING else, and column 3 is the primary cluster
+wordmark, the glyph alone below 768px — see "Narrow-width behaviour" below), column 2 is the mode
+control and NOTHING else, and column 3 is the primary cluster
 (New Ticket, then Inbox while `viewMode === "board"`) followed by a hairline divider and the
 utility cluster (sync status, Activity, Settings). Column 2's exclusivity is load-bearing: because
 `justifySelf: "center"` places it against the grid's own centerline rather than against its
@@ -1933,10 +1934,21 @@ other. A contained control needs both at once, so it is composed locally rather 
 primitive change for a single consumer. Extraction to `src/web/primitives/` waits for a second
 consumer.
 
-**Narrow-width behaviour.** Nothing is hidden or removed below 768px. `useMediaQuery` in
-`SyncStrip.tsx` only ever compresses `clusterGap` (16px → 8px, the gap between the primary and
-utility clusters) and `itemGap` (8px → 4px, the gap within each cluster) — no control, badge, or
-the `role="status" aria-live="polite"` sync region is conditionally rendered away at any width.
+**Narrow-width behaviour.** Exactly one thing is removed below 768px: the `DISPATCH` wordmark span,
+leaving the identity zone as the `Glyph` alone. The app name is not lost — below 768px the glyph is
+passed `title="Dispatch"`, which flips its `role` from `"presentation"` to `"img"`, drops its
+`aria-hidden`, and gives it an `aria-label`, so the name stays in the accessibility tree exactly as
+the wordmark's text node did. The wordmark is 136.5px wide, over a third of a 390px viewport, and
+the strip's remaining fixed elements do not fit beside it at that width even with the status text
+erased entirely, which is why this is a removal rather than a size reduction. `wordmarkStyle` itself
+is untouched and its other two consumers (`App.tsx`, `FirstRunSetup.tsx`) render unchanged, so the
+one-wordmark-definition rule is unaffected.
+
+Nothing else is removed. `useMediaQuery` in `SyncStrip.tsx` otherwise only compresses `clusterGap`
+(16px → 8px, the gap between the primary and utility clusters) and `itemGap` (8px → 4px, the gap
+within each cluster) — no control, no badge, and above all not the `role="status" aria-live="polite"`
+sync region is conditionally rendered away at any width. That region yields by truncating, never by
+unmounting.
 
 **The written non-goal: no persistent left sidebar.** A single-board product gains no navigation
 value from a persistent left sidebar and pays for it in real board width with nothing to show for

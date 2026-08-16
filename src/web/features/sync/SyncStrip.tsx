@@ -217,8 +217,8 @@ export function SyncStrip({
   return (
     <div style={stripContainerStyle}>
       <div style={identityZoneStyle}>
-        <Glyph size={16} />
-        <span style={wordmarkStyle}>DISPATCH</span>
+        <Glyph size={16} title={narrow ? "Dispatch" : undefined} />
+        {narrow ? null : <span style={wordmarkStyle}>DISPATCH</span>}
       </div>
       <div style={modeControlStyle} role="group" aria-label="View">
         <IconButton
