@@ -2020,7 +2020,7 @@ component consumes both tokens, `tokens.css` defines both cascade steps for each
 deliberately file-scoped (`checkStripCascades`) rather than a `RETIRED_PATTERNS` entry, because the
 retired literal is a legitimate value in eight other files (`SearchBox.tsx`, `UpdateBanner.tsx`,
 `MoveToPicker.tsx`, `FirstRunSetup.tsx`, `CleanupModal.tsx`, `ActivityDrawer.tsx`, `Button.tsx`,
-`OrcaSection.tsx`) and a global substring scan would false-positive on all of them. Mirroring
+`OrcaGroupSection.tsx`) and a global substring scan would false-positive on all of them. Mirroring
 `NEW-17`'s own resolution: `src/web/**/*.tsx` carries zero comments under this repo's comment
 standard (`docs/standards/comments.md` rule 2's tsx carve-out), so this section — not a JSDoc
 pointer on any `.tsx` file — is the durable home the invariant-audit gate reads for `NEW-18`.
@@ -2363,7 +2363,7 @@ mechanically-checkable question; none of them read prose for truth.
   pointers and backtick-quoted source-file citations in this doc that no longer resolve, and
   (2) internal planning-process vocabulary (`this phase`, `Plan NN-NN`, `Phase <number>`,
   `phase-smoke-tester`, `ROADMAP`, `.planning/`) leaking into shipped `src/` — the shape of bug
-  that once shipped a "pre-this-phase" reference in `SettingsModal.tsx`'s user-facing copy. See
+  that once shipped a "pre-this-phase" reference in `SettingsScreen.tsx`'s user-facing copy. See
   the script's own header JSDoc for the full scope, its JSDoc-citation carve-out, and what it
   deliberately does not attempt (behavioral claims — no grep proves a paragraph's claim about
   what the code does is still true).
