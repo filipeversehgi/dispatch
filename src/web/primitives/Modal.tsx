@@ -102,11 +102,12 @@ const dialogBaseStyle: CSSProperties = {
   maxWidth: "calc(100vw - 32px)",
   display: "flex",
   flexDirection: "column",
-  gap: "var(--space-lg)",
-  padding: "var(--space-xl)",
+  gap: 0,
+  padding: 0,
   background: "var(--surface-column)",
   border: "1px solid var(--border)",
-  borderRadius: "var(--radius)",
+  borderRadius: "var(--radius-lg)",
+  boxShadow: "var(--shadow-float)",
   transition: "opacity 150ms ease-out, transform 150ms ease-out",
 };
 
@@ -115,16 +116,29 @@ const headerStyle: CSSProperties = {
   alignItems: "flex-start",
   justifyContent: "space-between",
   gap: "var(--space-lg)",
+  padding: "var(--space-xl) var(--space-xl) 0",
 };
 
 const headingStyle: CSSProperties = {
   margin: 0,
   minWidth: 0,
   fontFamily: "var(--font-mono)",
-  fontSize: "var(--font-label)",
+  fontSize: "var(--font-heading)",
   fontWeight: "var(--weight-semibold)",
-  lineHeight: "var(--line-label)",
-  color: "var(--text-muted)",
+  lineHeight: "var(--line-heading)",
+  color: "var(--text)",
+};
+
+const bodyWrapperStyle: CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "var(--space-lg)",
+  flex: "1 1 auto",
+  minHeight: 0,
+};
+
+const actionsWrapperStyle: CSSProperties = {
+  padding: "0 var(--space-xl) var(--space-xl)",
 };
 
 export function Modal({
@@ -216,9 +230,11 @@ export function Modal({
             </IconButton>
           </div>
 
-          {bodyContent}
+          <div className="reading-surface" style={bodyWrapperStyle}>
+            {bodyContent}
+          </div>
 
-          {actionsContent}
+          <div style={actionsWrapperStyle}>{actionsContent}</div>
         </div>
       </div>
     </>,

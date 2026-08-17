@@ -41,7 +41,7 @@ export function OrcaGroupSection({
         <span
           style={{
             fontSize: "var(--font-label)",
-            fontWeight: "var(--weight-semibold)",
+            fontWeight: "var(--weight-medium)",
             lineHeight: "var(--line-label)",
             letterSpacing: "0.04em",
             color: "var(--text-muted)",
@@ -55,9 +55,9 @@ export function OrcaGroupSection({
               ? `color-mix(in srgb, ${group.accent} 16%, var(--surface-column))`
               : "var(--surface-card)",
             color: group.accent ?? "var(--text-muted)",
-            borderRadius: "var(--radius)",
+            borderRadius: "var(--radius-sm)",
             padding: "0 var(--space-xs)",
-            fontSize: "var(--font-label)",
+            fontSize: "var(--font-micro)",
           }}
         >
           {group.count}

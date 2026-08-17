@@ -3,6 +3,7 @@ import { ChevronRight, Folder, FolderGit2 } from "lucide-react";
 import type { DirEntry, DirListing } from "../../../shared/types.js";
 import { browseDirectory } from "../../lib/api.js";
 import { Button } from "../../primitives/Button.js";
+import { focusRing } from "../../primitives/focus-ring.js";
 import { Modal } from "../../primitives/Modal.js";
 import { Notice } from "../../primitives/Notice.js";
 
@@ -21,9 +22,6 @@ function writeLastDir(path: string): void {
     localStorage.setItem(LAST_DIR_KEY, path);
   } catch {}
 }
-
-const focusRing = (on: boolean): string =>
-  on ? "0 0 0 2px var(--accent)" : "none";
 
 function basename(p: string): string {
   const parts = p.split("/").filter(Boolean);
@@ -80,7 +78,7 @@ function BreadcrumbSegment({ label, isLast, onClick }: BreadcrumbSegmentProps) {
         whiteSpace: "nowrap",
         cursor: "pointer",
         outline: "none",
-        boxShadow: focusRing(focus),
+        ...focusRing(focus),
       }}
     >
       {label}
@@ -371,7 +369,7 @@ export function FolderBrowserModal({
               display: "flex",
               flexDirection: "column",
               outline: "none",
-              boxShadow: focusRing(listFocus),
+              ...focusRing(listFocus),
               borderRadius: "var(--radius)",
             }}
           >

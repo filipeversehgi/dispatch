@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { FilterOption } from "../../../shared/types.js";
+import { focusRing } from "../../primitives/focus-ring.js";
 import { MultiSelect } from "../modals/index.js";
 
 interface InboxToolbarProps {
@@ -40,7 +41,9 @@ export function InboxToolbar({
         type="text"
         value={search}
         onChange={(e) => onSearchChange(e.target.value)}
-        onFocus={() => setSearchFocus(true)}
+        onFocus={(event) =>
+          setSearchFocus(event.currentTarget.matches(":focus-visible"))
+        }
         onBlur={() => setSearchFocus(false)}
         placeholder="Search inbox…"
         aria-label="Search inbox"
@@ -57,7 +60,7 @@ export function InboxToolbar({
           fontSize: "var(--font-body)",
           lineHeight: "var(--line-body)",
           outline: "none",
-          boxShadow: searchFocus ? "0 0 0 2px var(--accent)" : "none",
+          ...focusRing(searchFocus),
           flex: "0 0 auto",
         }}
       />

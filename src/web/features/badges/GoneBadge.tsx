@@ -8,7 +8,7 @@ export function GoneBadge() {
         lineHeight: "var(--line-label)",
         color: "var(--text-muted)",
         border: "1px solid var(--border)",
-        borderRadius: "var(--radius)",
+        borderRadius: "var(--radius-sm)",
         padding: "0 var(--space-xs)",
         whiteSpace: "nowrap",
       }}

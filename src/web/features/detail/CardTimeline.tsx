@@ -74,7 +74,7 @@ export function CardTimeline({
         <span
           style={{
             fontSize: "var(--font-label)",
-            fontWeight: "var(--weight-semibold)",
+            fontWeight: "var(--weight-medium)",
             lineHeight: "var(--line-label)",
             color: "var(--text-muted)",
           }}

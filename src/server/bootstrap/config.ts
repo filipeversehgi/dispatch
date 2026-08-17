@@ -32,7 +32,7 @@ const CONFIG_TEMPLATE = {
   port: DEFAULT_PORT,
   "// pollIntervalMs": "Linear poll interval in ms. Default 60000 (60s).",
   pollIntervalMs: DEFAULT_POLL_INTERVAL_MS,
-  "// workspaceRoot": "Phase 2+. Root folder for per-ticket workspaces.",
+  "// workspaceRoot": "Root folder for per-ticket workspaces.",
   workspaceRoot: DEFAULT_WORKSPACE_ROOT,
   "// statusChannel":
     'Status source: "hooks", "pane", or "auto" (prefer hooks per session, pane fallback). Default "auto".',

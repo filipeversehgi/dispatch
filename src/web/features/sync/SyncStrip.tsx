@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import {
   Activity,
   Inbox,
@@ -6,13 +6,106 @@ import {
   PanelLeft,
   Plus,
   Settings,
-  type LucideIcon,
 } from "lucide-react";
 import type { ConnectionStatus } from "../../hooks/useBoardStream.js";
-import { Glyph } from "../../primitives/Glyph.js";
+import { useMediaQuery } from "../../hooks/useMediaQuery.js";
+import { focusRing } from "../../primitives/focus-ring.js";
+import { Glyph, wordmarkStyle } from "../../primitives/Glyph.js";
 import { IconButton } from "../../primitives/IconButton.js";
 
-type ViewMode = "board" | "workspace";
+const stripContainerStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "var(--strip-grid-columns)",
+  alignItems: "center",
+  height: "var(--strip-height)",
+  flex: "0 0 var(--strip-height)",
+  padding: "0 var(--strip-padding)",
+  borderBottom: "1px solid var(--border)",
+  background: "var(--surface-column)",
+  fontSize: "var(--font-label)",
+  fontWeight: "var(--weight-semibold)",
+  lineHeight: "var(--line-label)",
+  userSelect: "none",
+};
+
+const identityZoneStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--space-xs)",
+  color: "var(--text)",
+};
+
+const modeControlStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifySelf: "center",
+  height: "28px",
+  padding: "2px",
+  background: "var(--surface-card)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius)",
+};
+
+const viewSegmentStyle: CSSProperties = {
+  width: "28px",
+  height: "24px",
+  borderRadius: "var(--radius-sm)",
+};
+
+const activeSegmentTint =
+  "color-mix(in srgb, var(--accent) 16%, var(--surface-column))";
+
+const rightZoneStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "flex-end",
+  minWidth: 0,
+};
+
+const primaryClusterStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+};
+
+const utilityClusterStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  minWidth: 0,
+};
+
+const dividerStyle: CSSProperties = {
+  width: "1px",
+  height: "20px",
+  background: "var(--border)",
+  flex: "0 0 auto",
+};
+
+const newTicketBaseStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "var(--space-xs)",
+  flex: "0 0 auto",
+  height: "28px",
+  background: "var(--surface-card)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius)",
+  color: "var(--text)",
+  fontSize: "var(--font-label)",
+  fontWeight: "var(--weight-semibold)",
+  lineHeight: "var(--line-label)",
+  cursor: "pointer",
+  outline: "none",
+};
+
+const newTicketLabelledStyle: CSSProperties = {
+  padding: "0 var(--space-sm)",
+};
+
+const newTicketIconOnlyStyle: CSSProperties = {
+  padding: 0,
+  width: "28px",
+  justifyContent: "center",
+};
 
 interface SyncStripProps {
   syncedAt: string | null;
@@ -27,101 +120,9 @@ interface SyncStripProps {
   onOpenInbox?: () => void;
   inboxCount?: number;
   inboxOpen?: boolean;
-  onOpenCreateTicket?: () => void;
-  viewMode?: ViewMode;
-  onSelectViewMode?: (mode: ViewMode) => void;
-}
-
-const focusRing = (on: boolean): string =>
-  on ? "0 0 0 2px var(--accent)" : "none";
-
-const VIEW_MODES: { id: ViewMode; label: string; icon: LucideIcon }[] = [
-  { id: "board", label: "Board", icon: Kanban },
-  { id: "workspace", label: "Workspace", icon: PanelLeft },
-];
-
-interface ViewModeSegmentProps {
-  icon: LucideIcon;
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}
-
-function ViewModeSegment({
-  icon: Icon,
-  label,
-  active,
-  onClick,
-}: ViewModeSegmentProps) {
-  const [hover, setHover] = useState(false);
-  const [focus, setFocus] = useState(false);
-  return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      onFocus={(e) => setFocus(e.currentTarget.matches(":focus-visible"))}
-      onBlur={() => setFocus(false)}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "var(--space-xs)",
-        height: "26px",
-        padding: "0 var(--space-sm)",
-        border: "none",
-        borderRadius: "calc(var(--radius) - 2px)",
-        background:
-          active || hover ? "var(--surface-card-hover)" : "transparent",
-        color: active ? "var(--accent)" : "var(--text-muted)",
-        fontFamily: "var(--font-ui)",
-        fontSize: "var(--font-label)",
-        fontWeight: "var(--weight-semibold)",
-        lineHeight: "var(--line-label)",
-        cursor: "pointer",
-        outline: "none",
-        boxShadow: focusRing(focus),
-      }}
-    >
-      <Icon size={14} strokeWidth={2} aria-hidden="true" />
-      {label}
-    </button>
-  );
-}
-
-interface ViewModeSwitchProps {
-  viewMode?: ViewMode;
-  onSelect?: (mode: ViewMode) => void;
-}
-
-function ViewModeSwitch({ viewMode, onSelect }: ViewModeSwitchProps) {
-  return (
-    <div
-      role="tablist"
-      aria-label="View"
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "2px",
-        padding: "2px",
-        background: "var(--surface-card)",
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius)",
-      }}
-    >
-      {VIEW_MODES.map((mode) => (
-        <ViewModeSegment
-          key={mode.id}
-          icon={mode.icon}
-          label={mode.label}
-          active={viewMode === mode.id}
-          onClick={() => onSelect?.(mode.id)}
-        />
-      ))}
-    </div>
-  );
+  onOpenCreateTicket: () => void;
+  viewMode?: "board" | "workspace";
+  onSelectViewMode?: (mode: "board" | "workspace") => void;
 }
 
 function formatSynced(syncedTs: number, now: number): string {
@@ -155,6 +156,13 @@ export function SyncStrip({
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
+
+  const narrow = useMediaQuery("(max-width: 767px)");
+  const clusterGap = narrow ? "var(--space-sm)" : "var(--space-lg)";
+  const itemGap = narrow ? "var(--space-xs)" : "var(--space-sm)";
+  const iconOnly = useMediaQuery("(max-width: 1023px)");
+  const [newTicketHovered, setNewTicketHovered] = useState(false);
+  const [newTicketFocused, setNewTicketFocused] = useState(false);
 
   const disconnected = connection === "disconnected";
   const syncedTs = syncedAt !== null ? new Date(syncedAt).getTime() : NaN;
@@ -207,166 +215,181 @@ export function SyncStrip({
         : "Connected";
 
   return (
-    <div
-      style={{
-        height: "var(--strip-height)",
-        flex: "0 0 var(--strip-height)",
-        display: "grid",
-        gridTemplateColumns: "1fr auto 1fr",
-        alignItems: "center",
-        padding: "0 var(--space-lg)",
-        borderBottom: "1px solid var(--border)",
-        background: "var(--surface-column)",
-        fontSize: "var(--font-label)",
-        fontWeight: "var(--weight-semibold)",
-        lineHeight: "var(--line-label)",
-        userSelect: "none",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: "var(--space-xs)",
-          color: "var(--text)",
-        }}
-      >
-        <Glyph size={16} />
-        <span
-          style={{
-            fontWeight: 800,
-            fontSize: "12px",
-            letterSpacing: "0.18em",
-          }}
-        >
-          DISPATCH
-        </span>
+    <div style={stripContainerStyle}>
+      <div style={identityZoneStyle}>
+        <Glyph size={16} title={narrow ? "Dispatch" : undefined} />
+        {narrow ? null : <span style={wordmarkStyle}>DISPATCH</span>}
       </div>
-
-      <ViewModeSwitch viewMode={viewMode} onSelect={onSelectViewMode} />
-
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifySelf: "end",
-          gap: "var(--space-sm)",
-        }}
-      >
-        <div
-          role="status"
-          aria-live="polite"
+      <div style={modeControlStyle} role="group" aria-label="View">
+        <IconButton
+          aria-label="Board view"
+          title="Board view"
+          aria-pressed={viewMode === "board"}
+          onClick={() => onSelectViewMode?.("board")}
           style={{
-            display: "flex",
-            alignItems: "center",
-            color: disconnected ? "var(--destructive)" : "var(--text-muted)",
+            ...viewSegmentStyle,
+            color: viewMode === "board" ? "var(--accent)" : "var(--text-muted)",
+            ...(viewMode === "board" ? { background: activeSegmentTint } : {}),
           }}
         >
-          <span
-            title={dotTitle}
-            style={{
-              width: "6px",
-              height: "6px",
-              borderRadius: "50%",
-              background: dotColor,
-              marginRight: "var(--space-xs)",
-              flex: "0 0 auto",
-            }}
-          />
-          {text}
-        </div>
-        <IconButton
-          aria-label="New ticket"
-          title="New ticket"
-          onClick={onOpenCreateTicket}
-        >
-          <Plus size={16} strokeWidth={2} aria-hidden="true" />
+          <Kanban size={16} />
         </IconButton>
-        {viewMode === "board" && (
+        <IconButton
+          aria-label="Workspace view"
+          title="Workspace view"
+          aria-pressed={viewMode === "workspace"}
+          onClick={() => onSelectViewMode?.("workspace")}
+          style={{
+            ...viewSegmentStyle,
+            color:
+              viewMode === "workspace" ? "var(--accent)" : "var(--text-muted)",
+            ...(viewMode === "workspace"
+              ? { background: activeSegmentTint }
+              : {}),
+          }}
+        >
+          <PanelLeft size={16} />
+        </IconButton>
+      </div>
+      <div style={{ ...rightZoneStyle, gap: clusterGap }}>
+        <div style={{ ...primaryClusterStyle, gap: itemGap }}>
+          <button
+            type="button"
+            aria-label="New ticket"
+            title="New ticket"
+            onClick={onOpenCreateTicket}
+            onMouseEnter={() => setNewTicketHovered(true)}
+            onMouseLeave={() => setNewTicketHovered(false)}
+            onFocus={(event) =>
+              setNewTicketFocused(event.currentTarget.matches(":focus-visible"))
+            }
+            onBlur={() => setNewTicketFocused(false)}
+            style={{
+              ...newTicketBaseStyle,
+              ...(iconOnly ? newTicketIconOnlyStyle : newTicketLabelledStyle),
+              background: newTicketHovered
+                ? "var(--surface-card-hover)"
+                : "var(--surface-card)",
+              ...focusRing(newTicketFocused),
+            }}
+          >
+            <Plus size={16} strokeWidth={2} aria-hidden="true" />
+            {iconOnly ? null : <span>New ticket</span>}
+          </button>
+          {viewMode === "board" && (
+            <div style={{ position: "relative", display: "flex" }}>
+              <IconButton
+                id="inbox-toggle"
+                aria-label={
+                  inboxOpen
+                    ? "Close inbox, return to board"
+                    : inboxCount != null && inboxCount > 0
+                      ? `Open inbox, ${inboxCount} ticket${inboxCount === 1 ? "" : "s"}`
+                      : "Open inbox"
+                }
+                title={
+                  inboxCount != null && inboxCount > 0
+                    ? `Inbox — ${inboxCount} ticket${inboxCount === 1 ? "" : "s"}`
+                    : "Inbox"
+                }
+                aria-expanded={inboxOpen}
+                aria-controls="inbox-view"
+                onClick={onOpenInbox}
+                style={{
+                  color: inboxOpen ? "var(--accent)" : "var(--text-muted)",
+                  ...(inboxOpen ? { background: activeSegmentTint } : {}),
+                }}
+              >
+                <Inbox size={16} />
+              </IconButton>
+              {inboxCount != null && inboxCount > 0 && (
+                <span
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    top: "2px",
+                    right: "2px",
+                    background:
+                      "color-mix(in srgb, var(--accent) 16%, var(--surface-column))",
+                    color: "var(--accent)",
+                    borderRadius: "var(--radius-sm)",
+                    padding: "0 var(--space-xs)",
+                    fontSize: "var(--font-label)",
+                    fontWeight: "var(--weight-semibold)",
+                    lineHeight: "var(--line-label)",
+                    pointerEvents: "none",
+                  }}
+                >
+                  {inboxCount}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+        <span aria-hidden="true" style={dividerStyle} />
+        <div style={{ ...utilityClusterStyle, gap: itemGap }}>
+          <div
+            role="status"
+            aria-live="polite"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              minWidth: 0,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              color: disconnected ? "var(--destructive)" : "var(--text-muted)",
+              fontWeight: "var(--weight-medium)",
+            }}
+          >
+            <span
+              title={dotTitle}
+              style={{
+                width: "6px",
+                height: "6px",
+                borderRadius: "50%",
+                background: dotColor,
+                marginRight: "var(--space-xs)",
+                flex: "0 0 auto",
+              }}
+            />
+            {text}
+          </div>
           <div style={{ position: "relative", display: "flex" }}>
             <IconButton
-              id="inbox-toggle"
-              aria-label={
-                inboxOpen
-                  ? "Close inbox, return to board"
-                  : inboxCount != null && inboxCount > 0
-                    ? `Open inbox, ${inboxCount} ticket${inboxCount === 1 ? "" : "s"}`
-                    : "Open inbox"
-              }
-              title={
-                inboxCount != null && inboxCount > 0
-                  ? `Inbox — ${inboxCount} ticket${inboxCount === 1 ? "" : "s"}`
-                  : "Inbox"
-              }
-              aria-expanded={inboxOpen}
-              aria-controls="inbox-view"
-              onClick={onOpenInbox}
-              style={{
-                color: inboxOpen ? "var(--accent)" : "var(--text-muted)",
-                ...(inboxOpen
-                  ? { background: "var(--surface-card-hover)" }
-                  : {}),
-              }}
+              id="activity-toggle"
+              aria-label="Activity feed"
+              title={activityUnseen ? "Activity — unseen" : "Activity"}
+              aria-expanded={activityOpen}
+              aria-controls="activity-drawer"
+              onClick={onOpenActivity}
             >
-              <Inbox size={16} />
+              <Activity size={16} />
             </IconButton>
-            {inboxCount != null && inboxCount > 0 && (
+            {activityUnseen && (
               <span
                 aria-hidden="true"
                 style={{
                   position: "absolute",
                   top: "2px",
                   right: "2px",
-                  background:
-                    "color-mix(in srgb, var(--accent) 16%, var(--surface-column))",
-                  color: "var(--accent)",
-                  borderRadius: "var(--radius)",
-                  padding: "0 var(--space-xs)",
-                  fontSize: "var(--font-label)",
-                  fontWeight: "var(--weight-semibold)",
-                  lineHeight: "var(--line-label)",
+                  width: "6px",
+                  height: "6px",
+                  borderRadius: "50%",
+                  background: "var(--status-ok)",
                   pointerEvents: "none",
                 }}
-              >
-                {inboxCount}
-              </span>
+              />
             )}
           </div>
-        )}
-        <div style={{ position: "relative", display: "flex" }}>
           <IconButton
-            id="activity-toggle"
-            aria-label="Activity feed"
-            title={activityUnseen ? "Activity — unseen" : "Activity"}
-            aria-expanded={activityOpen}
-            aria-controls="activity-drawer"
-            onClick={onOpenActivity}
+            aria-label="Sync filters"
+            title="Settings"
+            onClick={onOpenSettings}
           >
-            <Activity size={16} />
+            <Settings size={16} />
           </IconButton>
-          {activityUnseen && (
-            <span
-              aria-hidden="true"
-              style={{
-                position: "absolute",
-                top: "2px",
-                right: "2px",
-                width: "6px",
-                height: "6px",
-                borderRadius: "50%",
-                background: "var(--status-ok)",
-                pointerEvents: "none",
-              }}
-            />
-          )}
         </div>
-        <IconButton
-          aria-label="Sync filters"
-          title="Settings"
-          onClick={onOpenSettings}
-        >
-          <Settings size={16} />
-        </IconButton>
       </div>
     </div>
   );

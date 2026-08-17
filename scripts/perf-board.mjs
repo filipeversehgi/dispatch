@@ -421,11 +421,11 @@ async function moveCard(port, id, column) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ column }),
   });
-  if (res.status !== 200) {
+  if (res.status !== 204) {
     const body = await res.text();
     throw new Error(`move ${id} -> ${column} failed (${res.status}): ${body}`);
   }
-  await res.json();
+  await res.body?.cancel();
 }
 
 /**

@@ -37,9 +37,12 @@ sections are scaffolded here and filled by the later Phase 10 migration plans.
   - [Cleanup Lifecycle](#cleanup-lifecycle)
   - [Hooks Status Channel](#hooks-status-channel)
   - [Dev-Server Preview Detection](#dev-server-preview-detection)
+  - [Design System Invariants](#design-system-invariants)
+  - [App Shell Zones](#app-shell-zones)
 - [Do Not Change Contracts](#do-not-change-contracts)
 - [Security Threat Model](#security-threat-model)
 - [Known Residuals](#known-residuals)
+- [Verification Gates](#verification-gates)
 
 ## System Overview
 
@@ -895,6 +898,23 @@ identity-stable across four separate mutations:
   `pointerType` sniffing this section warns against elsewhere — the value is fixed for the whole
   gesture, exactly like `isCoarsePointer` is fixed for the whole render.
 
+**The handle is also a keyboard-operable `role="separator"`.** It declares
+`aria-orientation="vertical"`, is focusable (`tabIndex={0}`), and reports
+`aria-valuenow`/`aria-valuemin`/`aria-valuemax` tracking the live rendered width. `ArrowLeft`
+widens the panel and `ArrowRight` narrows it — reversed from an intuitive left-to-right slider
+because the panel is anchored to the right edge, so leftward growth is what a pointer drag in
+that direction already produces. Both input modes read one pair of module constants
+(`PANEL_MIN_WIDTH_PX`, `PANEL_MAX_WIDTH_RATIO`) so the pointer and keyboard paths can never
+disagree about the resizable range, and both commit through the same `setPanelWidth` call so a
+keyboard resize persists identically to a pointer one. The `aria-valuenow`/`aria-valuemax`
+values are fed by a `ResizeObserver` watching both the panel `<aside>` and
+`document.documentElement`, gated off (`resizing` state) for the duration of a pointer drag so
+the observer never fires mid-drag and never re-renders the panel while the pointerup write is
+still imperative — preserving the drag's instant-feel, remount-free contract. The handle does
+not render below `CAROUSEL_QUERY`, for the same reason the touch discussion above gives: takeover
+forces the panel to `100vw`, so there is no width left to trade — a deliberate non-fix, not a gap
+to close.
+
 **Docked (Orca) mode is a SECOND style-only derivation of the same `<aside>`, re-deriving `PANEL-03`
 for a second surface.** `position` stays `fixed` in BOTH modes — only `top`/`left`/`width`/`height`/
 `borderLeft`/`transform`/`transition` branch on the `docked` prop, the exact same category of change
@@ -965,6 +985,12 @@ path ever echoed in a body, `T-06-02`/`T-06-03`) then spawns through the argv-ar
 string, never a client-supplied path. The launch is a fast GUI hand-off (do NOT hand-spawn a detached
 process); on a stale boot-resolved path (Homebrew relink, editor moved) it re-resolves ONCE, refreshes
 the module cache, and retries a single time before rethrowing to the fire-and-forget `.catch`.
+
+**The embedded terminal client this iframe loads is fenced out of Phase 87's diff (`NEW-20`, see
+[Design System Invariants](#design-system-invariants)).** This section covers the panel CONTAINER
+around the terminal — the `<iframe>`'s identity, mount lifecycle, and sizing; `NEW-20` covers the
+terminal client itself (`src/web/terminal-main.ts`, `src/web/terminal.html`), which this phase may
+not touch.
 
 ### Tmux Invocations
 
@@ -1814,6 +1840,216 @@ route, the shape `pollNow()` already has for the Linear poller) and because the 
 the guard returns: the promise of the tick ALREADY in flight, not a fresh scan. A caller wanting
 guaranteed-fresh results has to wait for the in-flight tick to settle and then run another.
 
+### Design System Invariants
+
+**Keyboard focus is an outline, never a box-shadow (`NEW-15`).** The rule, authored in `docs/standards/frontend-design-system.md`: "a keyboard focus ring must never look identical to selection."
+`focusRing()` in `src/web/primitives/focus-ring.ts` is the single definition every call site
+consumes. Where an `overflow: hidden` ancestor clips the ring's offset, the locked resolution is
+to drop the offset to 0 at that call site — never to fall back to a box-shadow expression, which
+is structurally identical to the selection ring and is exactly the defect this invariant exists
+to prevent.
+
+**One shadow token for the whole app (`NEW-16`).** `--shadow-float`, defined once in
+`src/web/styles/tokens.css`, is the system's only shadow. The invariant is the single definition,
+not a consumer cap: `RETIRED_PATTERNS`'s literal scan over `src/**/*.{ts,tsx}` catches the retired
+`0 6px 16px rgba(0,0,0,0.45)` value reappearing anywhere outside `tokens.css`, which is what makes
+"one definition" mechanical. Measured today it is consumed at seven call sites — the card drag
+overlay (`CardView.tsx:171`), the selection bar (`SelectionBar.tsx:29`), the search results
+listbox (`SearchBox.tsx:321`), the carousel search overlay (`SearchBox.tsx:400`), the move-to
+picker (`MoveToPicker.tsx:97`), the multi-select dropdown (`MultiSelect.tsx:248`), and the modal
+(`Modal.tsx:110`). Cards and columns carry no shadow at rest; a second, independently-defined
+shadow value is the regression the gate catches, not an additional consumer of the one token.
+
+**One wordmark definition (`NEW-17`).** `wordmarkStyle` in `src/web/primitives/Glyph.tsx` is the
+only place the DISPATCH wordmark's type treatment (size, weight, letter-spacing) is written down.
+Every site that renders the wordmark imports it rather than repeating the values inline.
+`src/web/**/*.tsx` carries zero comments by this repo's comment standard (`docs/standards/comments.md`
+rule 2's tsx carve-out), so this section — not a JSDoc pointer on `wordmarkStyle` itself — is the
+durable home the invariant-audit gate reads for `NEW-17`.
+
+**The contract's looser reading rhythm never enters a board surface (`NEW-19`).** The contract's
+`.reading-surface` class lifts `--line-body` from its global 1.5 to a roomier 1.6
+(`src/web/styles/tokens.css`); Phase 86's criterion 2 forbids that looser rhythm from
+`src/web/features/board/` by name, so it can cost card density. The two carriers of the
+forbidden rhythm are the `.reading-surface` class name and a local `--line-body` redefinition —
+a custom-property declaration, never a `var(--line-body)` _read_. `var(--line-body)` consumption
+at the global 1.5 is expressly permitted: the contract itself specifies `--line-body` as the card
+title's own line height, so barring consumption would force a card-height change, which criterion
+2 forbids outright. The check is directory-scoped to `src/web/features/board/` rather than global
+because `.reading-surface` is legitimately used elsewhere (`Modal.tsx`, `DetailPanel.tsx`).
+`src/web/**/*.tsx` carries zero comments by this repo's comment standard, so this section — not a
+JSDoc pointer on any board component — is the durable home the invariant-audit gate reads for
+`NEW-19`.
+
+**The embedded terminal client is fenced out of Phase 87's diff (`NEW-20`).** The two paths
+`src/web/terminal-main.ts` and `src/web/terminal.html` are the entire embedded terminal client —
+there is no terminal-client directory on disk, so the fence names these two paths directly rather
+than a glob. `src/web/features/detail/TerminalRegion.tsx`, which renders the panel's `<iframe>`
+around that client, is a DIFFERENT file and is NOT fenced: the panel container may change this
+phase, the terminal client itself may not. **Enforcement is SPLIT into two halves, and neither
+half alone is the whole guarantee.** The mechanical half — `checkTerminalFence` in
+`scripts/check-invariants.mjs`, run by `node scripts/check-invariants.mjs` — proves only that the
+fence's SUBJECT SET is intact (neither fenced path was renamed or deleted, and no new
+`terminal*`-named sibling file appeared beside them in `src/web/`) and that `NEW-20` has a home.
+It structurally CANNOT prove the fenced files' CONTENTS are unchanged, because
+`check-invariants.mjs`'s entire mechanism is point-in-time pattern matching against the current
+tree, with zero `git diff`/`execSync` calls anywhere in the script. The second half — proving the
+CONTENTS are unchanged — is the on-demand command `git diff <base-sha>..HEAD --
+src/web/terminal-main.ts src/web/terminal.html`, run against the phase's recorded base SHA; empty
+output is the proof. A reader who sees `PASS: 121/121` alone has not yet seen this second half
+run.
+
+`scripts/check-invariants.mjs` mechanically covers all six through four separate checks: a
+global retired-pattern scan over `src/**/*.{ts,tsx}` catches the retired box-shadow focus
+expression, the retired float-shadow literal, and a hardcoded wordmark weight reappearing
+anywhere in source; a second, file-scoped check (`checkStripPadding`, `NEW-18`, see
+[App Shell Zones](#app-shell-zones)) covers a fourth retired literal that the global scan cannot
+safely reach, and additionally asserts the padding cascade's own mechanism so the check cannot pass
+against an implementation that quietly dropped it; a third, directory-scoped check (`checkBoardReadingRhythm`, `NEW-19`, above) covers
+the fifth; and a fourth, file-scoped check (`checkTerminalFence`, `NEW-20`, above) covers the
+sixth — proving only the fenced subject set, never the fenced contents, as stated above.
+
+### App Shell Zones
+
+**The zone grid.** `SyncStrip.tsx` renders its three top-level children through a CSS grid whose
+`gridTemplateColumns` reads `var(--strip-grid-columns)`: column 1 is the identity zone (`Glyph` plus
+the DISPATCH wordmark, the glyph alone below 768px — see "Narrow-width behaviour" below), column 2
+is the mode control and NOTHING else, and column 3 is the primary cluster (New Ticket, then Inbox
+while `viewMode === "board"`) followed by a hairline divider and the utility cluster (sync status,
+Activity, Settings). Column 2's exclusivity is load-bearing: because `justifySelf: "center"` places
+it against its own track rather than against its neighbors' combined width, its horizontal position
+stays invariant when anything in column 1 or column 3 mounts or unmounts — specifically, it stops
+the Inbox button's `viewMode === "board"` guard from shifting the view switch sideways when Orca
+view unmounts Inbox. A flex row with `justifyContent: "space-between"` cannot make this guarantee,
+because removing a sibling from either side changes that side's total width and the center-weighted
+middle drifts with it.
+
+**The template is width-dependent, and the two properties it trades are not the same property.**
+`--strip-grid-columns` cascades in `src/web/styles/tokens.css`, in the same
+`@media (max-width: 767px)` block as `--strip-padding` and `--strip-height`:
+
+| Width   | Template                             | Column 2                                     |
+| ------- | ------------------------------------ | -------------------------------------------- |
+| >=768px | `minmax(0, 1fr) auto minmax(0, 1fr)` | positionally invariant AND viewport-centred  |
+| <768px  | `auto auto minmax(0, 1fr)`           | positionally invariant, NOT viewport-centred |
+
+Both outer tracks are written with an explicit `minmax(0, …)` lower bound rather than the shorthand
+`1fr`, because `1fr` is `minmax(auto, 1fr)`, whose automatic minimum is the track's own min-content
+size — a bare `1fr` track can never shrink below its content, and the strip overflows the viewport
+instead.
+
+At >=768px the two outer tracks are symmetric, so column 2 lands on the viewport's centerline.
+Below 768px they deliberately are not, and the reason is measured: symmetric tracks mirror whatever
+slack column 1 does not use into column 1 anyway, and since the narrow identity zone is a glyph-only
+16px, that mirrored slack starved the sync-status region to 7px of box and **zero painted
+characters** at 390px. An `auto` first track hands that slack to column 3 instead, which is where
+the only elastic element lives. **Positional invariance survives the change** — the property the
+paragraph above calls load-bearing is immunity to a column-3 mount/unmount, and below 768px column 1
+is a fixed 16px that cannot vary with column 3 at all, so toggling Orca view leaves column 2's rect
+identical. What is given up below 768px is viewport _centring_, a different and weaker property,
+and it is given up only there.
+
+**The sync-status truncation chain.** The status string is the strip's only elastic element — every
+other item in the strip has a fixed width — and it is the one piece that can be arbitrarily long,
+since the server-supplied sync warning has no length bound. It is therefore the element that yields
+under pressure, and it does so by truncating to one ellipsized line rather than wrapping. That
+requires the WHOLE min-width chain to be able to shrink below min-content, not just the text node:
+the grid track column 3 resolves to (`minmax(0, …)` at every width, above), then `rightZoneStyle` and
+`utilityClusterStyle`, both flex containers whose default `min-width: auto` floors at min-content
+the same way, then the `role="status"` container itself, which carries `minWidth: 0` together with
+`whiteSpace: "nowrap"`, `overflow: "hidden"` and `textOverflow: "ellipsis"`. Any one link left out
+silently restores the min-content floor and the ellipsis never engages, which is why the chain is
+recorded here as a unit rather than as four independent style properties. The status dot keeps
+`flex: "0 0 auto"` so it is never the thing that truncates. The truncation is CSS-only and the
+region's `textContent` is always the complete string: `aria-live="polite"` announces the full text
+regardless of what is painted, so no `title` attribute and no shortened substitute string may be
+added here.
+
+**The weight tiers.** Within column 3, the primary cluster (New Ticket, Inbox) sits nearest the
+grid's center and the utility cluster (sync status, Activity, Settings) sits nearest the edge,
+separated by a 1px `--border` hairline (`dividerStyle`). Utility demotion is positional and
+color-based only — Activity and Settings stay at `IconButton`'s 16px glyph on `--text-muted` with
+no `style` override — never a size reduction: `IconButton.tsx`'s 28px box is the touch-target
+floor and this phase does not shrink it.
+
+**Why New Ticket is a local composition.** New Ticket left the `IconButton` primitive entirely and
+renders as a native `<button>` with its own `newTicketBaseStyle` / `newTicketLabelledStyle` /
+`newTicketIconOnlyStyle` constants and its own hover/focus state pair. Both `IconButton.tsx` and
+`Button.tsx` compute their resting `background` before spreading the caller's `style` prop, so
+neither primitive can express a resting fill (`--surface-card`) that also lifts on hover
+(`--surface-card-hover`) — a caller-supplied `style.background` would permanently pin one or the
+other. A contained control needs both at once, so it is composed locally rather than forcing a
+primitive change for a single consumer. Extraction to `src/web/primitives/` waits for a second
+consumer.
+
+**Narrow-width behaviour.** Exactly one thing is removed below 768px: the `DISPATCH` wordmark span,
+leaving the identity zone as the `Glyph` alone. The app name is not lost — below 768px the glyph is
+passed `title="Dispatch"`, which flips its `role` from `"presentation"` to `"img"`, drops its
+`aria-hidden`, and gives it an `aria-label`, so the name stays in the accessibility tree exactly as
+the wordmark's text node did. The wordmark is 136.5px wide, over a third of a 390px viewport, and
+the strip's remaining fixed elements do not fit beside it at that width even with the status text
+erased entirely, which is why this is a removal rather than a size reduction. `wordmarkStyle` itself
+is untouched and its other two consumers (`App.tsx`, `FirstRunSetup.tsx`) render unchanged, so the
+one-wordmark-definition rule is unaffected.
+
+Nothing else is removed. `useMediaQuery` in `SyncStrip.tsx` otherwise only compresses `clusterGap`
+(16px → 8px, the gap between the primary and utility clusters) and `itemGap` (8px → 4px, the gap
+within each cluster) — no control, no badge, and above all not the `role="status" aria-live="polite"`
+sync region is conditionally rendered away at any width. That region yields by truncating, never by
+unmounting.
+
+**The written non-goal: no persistent left sidebar.** A single-board product gains no navigation
+value from a persistent left sidebar and pays for it in real board width with nothing to show for
+it, so this app shell does not have one. Its enforceable form: `AppShell.tsx` mounts exactly one
+chrome container (`chromeRef`, holding `header`) above `content` and `detail` — there is no second
+top-level chrome slot for a sidebar to occupy without a structural change to `AppShell.tsx` itself.
+This is recorded here, as a written decision with a durable artifact, specifically so it cannot
+silently reopen in a later phase the way an unrecorded non-action would.
+
+**`NEW-18`.** The strip carries two responsive token cascades, both defined in
+`src/web/styles/tokens.css` and both stepped inside the same `@media (max-width: 767px)` block that
+already steps `--strip-height`: `--strip-padding` (24px, stepped to 16px) and
+`--strip-grid-columns` (symmetric, stepped to the narrow asymmetric template above). Each is
+written once in `stripContainerStyle` in `SyncStrip.tsx` as a bare `var(…)` reference. Both cascades
+are CSS rather than a `useMediaQuery` branch, deliberately: a custom property re-resolves on a
+breakpoint cross with zero React re-render, whereas an inline `narrow ? … : …` would re-render the
+whole strip while passing every geometry check. The "written once" guarantee is unchanged — the
+component names the token, never a value. `scripts/check-invariants.mjs` fails the build unless the
+component consumes both tokens, `tokens.css` defines both cascade steps for each, and the retired
+`padding: "0 var(--space-lg)"` (16px) literal has not returned to that file. This check is
+deliberately file-scoped (`checkStripCascades`) rather than a `RETIRED_PATTERNS` entry, because the
+retired literal is a legitimate value in eight other files (`SearchBox.tsx`, `UpdateBanner.tsx`,
+`MoveToPicker.tsx`, `FirstRunSetup.tsx`, `CleanupModal.tsx`, `ActivityDrawer.tsx`, `Button.tsx`,
+`OrcaSection.tsx`) and a global substring scan would false-positive on all of them. Mirroring
+`NEW-17`'s own resolution: `src/web/**/*.tsx` carries zero comments under this repo's comment
+standard (`docs/standards/comments.md` rule 2's tsx carve-out), so this section — not a JSDoc
+pointer on any `.tsx` file — is the durable home the invariant-audit gate reads for `NEW-18`.
+
+**The chosen view-switch rendering.** `modeControlStyle` in `SyncStrip.tsx` is a 28px-tall,
+2px-padded `role="group" aria-label="View"` container with a `--surface-card` fill, a 1px
+`--border` hairline, and `--radius` (6px) corners — the concentric outer curve to each segment's
+`--radius-sm` (4px) inner curve, since 6 minus the 2px inset equals 4. Each segment
+(`viewSegmentStyle`) is 24px tall by 28px wide, clearing WCAG 2.2 SC 2.5.8 Target Size
+(Minimum)'s 24×24 CSS-px floor — a deliberate, measured exception to the utility cluster's 28px
+touch-target floor described above, scoped to this control only. The active segment's whole box
+originally took `var(--accent)` as an opaque background (Candidate C, chosen over two other
+rendered candidates — an icon-color-only baseline and a labelled variant — because it was the
+only one that stayed identifiable "in well under a second" at every one of the four measured
+breakpoints; the icon-color-only baseline required close inspection to tell the segments apart,
+and the labelled candidate's advantage disappeared below 1024px, where it renders pixel-identical
+to the icon-color-only baseline). A later Phase 85 UI review found that opaque fill outweighed
+New Ticket, the control this same phase set out to elevate as "the single most-used control in
+the strip" — the mode control, which is used less often, was reading as the strip's most
+prominent element. The active segment now takes `activeSegmentTint`
+(`color-mix(in srgb, var(--accent) 16%, var(--surface-column))`, the same tint the inbox count
+badge already uses) as its background with `var(--accent)` icon color; the inactive segment stays
+transparent with `var(--text-muted)`. The Inbox toggle's open state was aligned to the same
+`activeSegmentTint` + accent-icon grammar in the same pass, so the primary cluster now expresses
+"active" one way, not two. `role="group"` with `aria-label="View"` was kept instead of
+`radiogroup`/`radio`, since that conversion would change keyboard semantics. See
+`docs/standards/design-contract.md`'s `## Deferred decisions` row 2 for the full rendered-evidence
+comparison and the later retuning.
+
 ## Do Not Change Contracts
 
 These are seams that refactors must hold **byte/shape-identical**. A change to any of them
@@ -1845,9 +2081,11 @@ is a behavior change, not a refactor.
    with a `404` (not `400`) for an unknown card id — see the Sync-out contract above. Vite proxy
    matches `^/api/` only (regex, deliberately not `/api`). `GET /api/search?q=` (SCALE-03) returns
    `{ results: CardSearchResult[], total }`, `400` on a missing or out-of-bounds `q` (`T-82-02`).
-   `GET /api/cards/:id` returns `200` with a redacted card, and — like every other handler in
-   `cards.route.ts` — **`400`, not `404`**, for an unknown id (`T-82-03`); `sync-linear`'s `404`
-   stays the sole documented deviation.
+   `GET /api/cards/:id` returns `200` with `{ card, members }` — a redacted card plus its redacted
+   group members, `members` always an array (`[]` for a non-group card) — and, like every other
+   handler in `cards.route.ts` — **`400`, not `404`**, for an unknown id (`T-82-03`); `sync-linear`'s
+   `404` stays the sole documented deviation. See `## GET /api/cards/:id answers a group parent's
+real membership directly, independent of windowing` below for the full envelope contract.
 4. **Persistence format + location.** `~/.dispatch/{board.json,config.json}`; `board.json` ===
    `BoardSnapshot` JSON; atomic writes via `write-file-atomic`; config at mode `0600`; the `"//"`-keyed
    config template.
@@ -1936,7 +2174,7 @@ table records the security invariants that ride on it, not the rule itself.
 | T-76-01 | Information Disclosure                  | `shared/types.ts`, `adapters/gh.ts`, `adapters/artifact-detect.ts`                                                                                     | A previously log-only `gh` failure category (T-04-04's content-free latch) now ALSO rides `card.prsUnknown`/`card.previewsUnknown` on the wire. `ProbeUnknown.category` is typed as the fixed `ProbeFailureCategory` union, so no raw `gh`/`lsof`/pane stderr, repo path, or branch name can ever be assigned to it — only the closed enum crosses `store.snapshot()`'s chokepoint, unredacted by design, exactly as `hookRoutedAt` already does for a non-secret timestamp. The log-once latch in `adapters/gh.ts` is preserved unchanged.                                         |
 | T-82-01 | Tampering / Denial of Service           | `routes/board.route.ts`, `routes/sse.route.ts`, `shared/done-limit.ts`                                                                                 | `doneLimit` is validated by `parseDoneLimit` as an integer in `[1, DONE_LIMIT_MAX=5000]` before it can reach `store.snapshot(opts)`. `GET /api/board` rejects an invalid value with `400` rather than clamping silently (mirroring `LIFE-04`'s `PUT /config/cleanup-delay` posture); `GET /api/stream` falls back to `DONE_PAGE_SIZE` instead, because an `EventSource` retries a failed connect forever and a 400 there would be an infinite reconnect loop rather than an actionable error. Negative, fractional, huge, and non-numeric values are all rejected before the slice. |
 | T-82-02 | Denial of Service                       | `routes/board.route.ts` (`/search`), `store#searchCards`                                                                                               | `q` is trimmed and length-bounded to `[SEARCH_QUERY_MIN=2, SEARCH_QUERY_MAX=100]` before any scan, and the response is capped at `SEARCH_RESULT_LIMIT=20` rows with the true `total` reported separately, so neither scan cost nor response size can be driven by a pathological query. Not an injection control — the query never leaves a `String.includes` argument (no SQL, no shell, no template).                                                                                                                                                                             |
-| T-82-03 | Information Disclosure                  | `store#searchCards`, `routes/cards.route.ts` (`GET /cards/:id`)                                                                                        | `searchCards` projects to the four-field `CardSearchResult`, so no card field beyond id/identifier/title/column can ride the search response by construction — stronger than redaction, since there is nothing to redact. `GET /cards/:id` returns `redactCard(card)`, reusing the single sanctioned redaction site added in Plan 82-02 rather than a second `delete`, so a single-card fetch can never widen what `store.snapshot()` already redacts.                                                                                                                              |
+| T-82-03 | Information Disclosure                  | `store#searchCards`, `routes/cards.route.ts` (`GET /cards/:id`)                                                                                        | `searchCards` projects to the four-field `CardSearchResult`, so no card field beyond id/identifier/title/column can ride the search response by construction — stronger than redaction, since there is nothing to redact. `GET /cards/:id` returns `{ card: redactCard(card), members: [...].map(redactCard) }` — every member, not just the card, routed through the single sanctioned redaction site added in Plan 82-02 rather than a second `delete`, so a single-card fetch (including its members array) can never widen what `store.snapshot()` already redacts.             |
 
 ## Known Residuals
 
@@ -2068,27 +2306,67 @@ that the Vite dev port is surfaced as a preview on some OTHER card's board entry
 process tree happens to include it — accepted and recorded here rather than silently claimed
 excluded.
 
-### A search-opened group parent shows zero members until it re-enters the window
+### `GET /api/cards/:id` answers a group parent's real membership directly, independent of windowing
 
-`App.tsx`'s `selectedCardMembers` (`membersOf(selectedCard, board?.cards ?? [])`) scans ONLY
-`board.cards` — the currently loaded, windowed set — for cards carrying the opened card's id as
-`groupId`. The Phase 82 pin fix (`80d7664`, hardened by the milestone-integration-audit fixes
-alongside `PinnedCard`) lets a group PARENT opened via search while out-of-window hydrate and
-DISPLAY correctly, but its members are a separate concern: `GET /api/cards/:id` (`T-82-03`)
-returns exactly one redacted card, never its group's member rows, and `CardSearchResult`
-(`T-82-03`) is deliberately four fields with no `groupId`/`memberIds` — there is no endpoint today
-that can answer "who are this group's members" for a card outside the window. `membersOf`
-therefore silently returns zero members for such a card, rendering an N-member group session as
-if it were solo, until the parent's own Done-window slice (or a live board update) brings the
-members back into `board.cards`.
+`App.tsx`'s `selectedCardMembers` derivation branches on whether the selected card is genuinely
+in-window (`board.cards.some(...)`, the same test the members-precedence rule and the
+actionability derivation below both reuse, rather than each writing an independent copy). An
+IN-WINDOW group card still derives members from the live SSE snapshot via
+`membersOf(selectedCard, board?.cards ?? [])` — `group-members.ts`'s `groupId` filter over
+`board.cards`, unchanged, so members keep updating live wherever the snapshot actually has the
+answer. An OUT-OF-WINDOW group card (reachable only via search, since windowing only ever excludes
+`done` cards past the page size) falls back to `pinned.members`, populated by
+`GET /api/cards/:id`'s response envelope: `{ card, members }`, where `members` is ALWAYS present
+(`[]` for a non-group card, never absent — an absent list is never ambiguous with "this is not a
+group"), and every entry — the card and each member — is routed through `redactCard`, the store's
+one sanctioned redaction site, so a members array can never re-implement the `hookToken` strip via
+a second, drift-prone copy (`T-82-03`).
 
-This does NOT fall out of the `actionablePinnedCard`/`PinnedCard` stub-vs-hydrated fix: that
-distinction gates whether an ALREADY-KNOWN card is safe to act on, not whether its members are
-known at all — a hydrated group parent has genuinely real member ids, but no fetched member DATA
-to show. Closing this properly needs a new members-fetching capability (e.g. a
-`GET /api/cards/:id/members` route, or widening the single-card fetch to embed a redacted member
-list for a `source: "group"` card) — deliberately deferred rather than bolted on here, so as not
-to risk the two real (blocker-severity) fixes it rode in alongside. Degrades to
-under-informative, never incorrect: no member field is misattributed or leaked, the group parent
-itself still displays and is fully actionable, and the gap self-heals the moment the card's normal
-Done-window slice includes its members again.
+The server side of this answers the membership question over `BoardStore`'s FULL in-memory `cards`
+Map (`board.store.ts`'s `membersOf(groupId)`), never the windowed wire `snapshot()` — the whole
+point of a single-card fetch (per its own JSDoc) is answering for cards the windowed snapshot
+excludes, so routing the members lookup through `snapshot()` would just re-import the same
+windowing gap it exists to route around. This server-side filter is a distinct implementation from
+the client's own `group-members.ts#membersOf`, which filters an ALREADY-fetched `Card[]` array —
+the two are kept as exactly two legitimate copies of the same `groupId` predicate, one server-side
+over the live Map, one client-side over an array, rather than a third independently-derived
+condition appearing anywhere.
+
+Actionability stays a separate, explicit question from "are the members known at all." A hydrated
+out-of-window group parent's member rows are actionable in exactly the same way an in-window
+card's are: `MemberRow`'s `actionable: boolean` prop is REQUIRED (no default), derived at exactly
+one site — `actionablePinnedMembers` in `pinned-card.ts`, the sibling to `actionablePinnedCard`
+with the identical three-part stub-vs-hydrated guard — so a stub can never present an actionable
+member row, and a future call site cannot silently inherit an answer nobody chose. A stub card
+(`stubToCard`'s filler placeholder, every non-identity field meaningless) renders NO Members block
+at all, not an empty or disabled one, because `ReferenceBlocks`'s `c.source === "group"` guard is
+never satisfied by a stub — `stubToCard` never sets `source: "group"`.
+
+This section previously recorded a deliberate residual: a search-opened group parent showed zero
+members until it re-entered the window, because `GET /api/cards/:id` returned a bare card with no
+membership data at all. That gap is closed — this section now describes the shipped mechanism,
+not the defect it replaced.
+
+## Verification Gates
+
+Dev tooling, not test code (repo rule — no unit/e2e tests). Each gate answers one narrow,
+mechanically-checkable question; none of them read prose for truth.
+
+- **`npm run check`** — the standing CI-shaped gate: `format:check`, `lint`, `typecheck`,
+  `deadcode` (knip), `replay-gate`, and `doc-drift` (below), run in sequence.
+- **`node scripts/check-invariants.mjs`** — invariant-home audit: every ID in the frozen
+  baseline (`scripts/invariant-baseline.txt`) must have a durable home (a JSDoc block in `src/`
+  or anywhere in this doc). Deliberately NOT wired into `npm run check` — it gates the
+  Phase 10 knowledge-migration baseline specifically, run on demand.
+- **`node scripts/check-doc-drift.mjs`** (`npm run doc-drift`, wired into `npm run check`) —
+  catches two classes of drift between this doc and `src/`: (1) `@see docs/ARCHITECTURE.md#...`
+  pointers and backtick-quoted source-file citations in this doc that no longer resolve, and
+  (2) internal planning-process vocabulary (`this phase`, `Plan NN-NN`, `Phase <number>`,
+  `phase-smoke-tester`, `ROADMAP`, `.planning/`) leaking into shipped `src/` — the shape of bug
+  that once shipped a "pre-this-phase" reference in `SettingsModal.tsx`'s user-facing copy. See
+  the script's own header JSDoc for the full scope, its JSDoc-citation carve-out, and what it
+  deliberately does not attempt (behavioral claims — no grep proves a paragraph's claim about
+  what the code does is still true).
+- **`phase-smoke-tester`** — the only BEHAVIORAL verification this project runs: an agent derives
+  and executes smoke cases against the running app after each phase's implementation lands. This
+  is the one gate above that cannot be reduced to a grep.

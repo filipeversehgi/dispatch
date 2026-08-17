@@ -8,13 +8,11 @@ import {
 } from "../../lib/api.js";
 import { Button } from "../../primitives/Button.js";
 import { Field } from "../../primitives/Field.js";
+import { focusRing } from "../../primitives/focus-ring.js";
 import { IconButton } from "../../primitives/IconButton.js";
 import { Modal, type ModalControl } from "../../primitives/Modal.js";
 import { Notice } from "../../primitives/Notice.js";
 import { FolderBrowserModal } from "../workspaces/index.js";
-
-const focusRing = (on: boolean): string =>
-  on ? "0 0 0 2px var(--accent)" : "none";
 
 const FOOTGUN_MESSAGE =
   "Playbook body can't contain the text DISPATCH_STATUS: — remove it and try again.";
@@ -188,7 +186,7 @@ export function PlaybookEditorModal({
                 fontSize: "var(--font-body)",
                 lineHeight: "var(--line-body)",
                 outline: "none",
-                boxShadow: focusRing(nameFocus),
+                ...focusRing(nameFocus),
               }}
             />
             {nameError !== null && (
@@ -403,7 +401,7 @@ export function PlaybookEditorModal({
                 fontSize: "var(--font-body)",
                 lineHeight: "var(--line-body)",
                 outline: "none",
-                boxShadow: focusRing(bodyFocus),
+                ...focusRing(bodyFocus),
               }}
             />
             {footgunError && (

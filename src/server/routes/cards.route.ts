@@ -102,7 +102,9 @@ function groupedMemberError(card: Card): string | null {
  * the sole documented deviation in this file and is not a precedent to extend here. Routes through
  * {@link redactCard} — the store's single sanctioned redaction site — so a single-card fetch can
  * never re-implement the `hookToken` strip via its own drift-prone copy, and can never widen what
- * `store.snapshot()` already redacts (`T-82-03`).
+ * `store.snapshot()` already redacts (`T-82-03`). The `members` array in the response routes
+ * through that same single sanctioned redaction site as `card` — every entry passes through
+ * {@link redactCard} below, never a second inline strip (`T-82-03`).
  */
 function getCardById(req: Request<{ id: string }>, res: Response): void {
   const { id } = req.params;
@@ -111,7 +113,9 @@ function getCardById(req: Request<{ id: string }>, res: Response): void {
     res.status(400).json({ error: `unknown card id: ${id}` });
     return;
   }
-  res.status(200).json(redactCard(card));
+  const members =
+    card.source === "group" ? store.membersOf(card.id).map(redactCard) : [];
+  res.status(200).json({ card: redactCard(card), members });
 }
 
 cardsRouter.get("/cards/:id", getCardById);

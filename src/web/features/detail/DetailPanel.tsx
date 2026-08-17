@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { GripVertical } from "lucide-react";
+import { AlertTriangle, GripVertical, RotateCw } from "lucide-react";
 import type {
   ActivityEvent,
   Card as CardModel,
@@ -12,6 +12,9 @@ import {
   setPanelWidth,
   usePanelWidth,
 } from "../../hooks/usePanelWidth.js";
+import { focusRing } from "../../primitives/focus-ring.js";
+import { Button } from "../../primitives/Button.js";
+import { Notice } from "../../primitives/Notice.js";
 import { CardTimeline } from "./CardTimeline.js";
 import { PanelHeader } from "./PanelHeader.js";
 import { PrRow } from "./PrRow.js";
@@ -21,13 +24,24 @@ import { ReferenceBlocks } from "./ReferenceBlocks.js";
 import { SessionLostSection } from "./SessionLostSection.js";
 import { TerminalRegion } from "./TerminalRegion.js";
 
+const PANEL_MIN_WIDTH_PX = 360;
+const PANEL_MAX_WIDTH_RATIO = 0.9;
+const PANEL_KEYBOARD_STEP_PX = 16;
+
+function commitPanelWidth(px: number): void {
+  setPanelWidth(px);
+}
+
 interface DetailPanelProps {
   card: CardModel | null;
   hydrating?: boolean;
+  pinFetchError?: "not-found" | "network" | null;
+  onRetryPinFetch?: () => void;
   editors?: { code: boolean; cursor: boolean };
   activityEvents?: ActivityEvent[];
   cardIdentifiers?: Record<string, string>;
   members?: CardModel[];
+  membersActionable: boolean;
   onClose: () => void;
   onStartRequest?: (id: string) => void;
   onCleanupRequest?: (id: string) => void;
@@ -37,10 +51,13 @@ interface DetailPanelProps {
 export function DetailPanel({
   card,
   hydrating = false,
+  pinFetchError = null,
+  onRetryPinFetch,
   editors,
   activityEvents,
   cardIdentifiers,
   members,
+  membersActionable,
   onClose,
   onStartRequest,
   onCleanupRequest,
@@ -107,10 +124,49 @@ export function DetailPanel({
   const cleanupDragRef = useRef<(() => void) | null>(null);
   const [hoveringHandle, setHoveringHandle] = useState(false);
   const [resizing, setResizing] = useState(false);
+  const [handleFocused, setHandleFocused] = useState(false);
+  const [measuredWidth, setMeasuredWidth] = useState<number | null>(null);
+  const [, setViewportWidth] = useState<number>(() => window.innerWidth);
 
   useEffect(() => {
     return () => cleanupDragRef.current?.();
   }, []);
+
+  useEffect(() => {
+    if (resizing) return;
+    const node = asideRef.current;
+    if (node == null) return;
+    const observer = new ResizeObserver(() => {
+      setMeasuredWidth(node.getBoundingClientRect().width);
+      setViewportWidth(window.innerWidth);
+    });
+    observer.observe(node);
+    observer.observe(document.documentElement);
+    return () => observer.disconnect();
+  }, [resizing]);
+
+  const maxWidthPx = window.innerWidth * PANEL_MAX_WIDTH_RATIO;
+  const rawWidthPx = persistedWidth ?? measuredWidth;
+  const currentWidthPx =
+    rawWidthPx != null
+      ? Math.min(maxWidthPx, Math.max(PANEL_MIN_WIDTH_PX, rawWidthPx))
+      : null;
+
+  function handleResizeKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const node = asideRef.current;
+    if (node == null) return;
+    const liveMaxPx = window.innerWidth * PANEL_MAX_WIDTH_RATIO;
+    const base = currentWidthPx ?? node.getBoundingClientRect().width;
+    const delta =
+      e.key === "ArrowLeft" ? PANEL_KEYBOARD_STEP_PX : -PANEL_KEYBOARD_STEP_PX;
+    const next = Math.min(
+      liveMaxPx,
+      Math.max(PANEL_MIN_WIDTH_PX, base + delta),
+    );
+    commitPanelWidth(next);
+  }
 
   function handleResizePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (e.button !== 0) return;
@@ -122,7 +178,7 @@ export function DetailPanel({
     const startX = e.clientX;
     const startWidth = node.getBoundingClientRect().width;
     const preDragStyleWidth = node.style.width;
-    const maxPx = window.innerWidth * 0.9;
+    const maxPx = window.innerWidth * PANEL_MAX_WIDTH_RATIO;
     const coarseGesture = e.pointerType !== "mouse";
     setResizing(true);
     document.body.style.cursor = "col-resize";
@@ -149,7 +205,7 @@ export function DetailPanel({
     function handlePointerMove(ev: PointerEvent) {
       const next = Math.min(
         maxPx,
-        Math.max(360, startWidth + (startX - ev.clientX)),
+        Math.max(PANEL_MIN_WIDTH_PX, startWidth + (startX - ev.clientX)),
       );
       node!.style.width = `${next}px`;
     }
@@ -163,9 +219,12 @@ export function DetailPanel({
         node!.style.width = preDragStyleWidth;
         return;
       }
-      const finalWidth = Math.min(maxPx, Math.max(360, startWidth + delta));
-      node!.style.width = `clamp(360px, ${finalWidth}px, 90vw)`;
-      setPanelWidth(finalWidth);
+      const finalWidth = Math.min(
+        maxPx,
+        Math.max(PANEL_MIN_WIDTH_PX, startWidth + delta),
+      );
+      node!.style.width = `clamp(${PANEL_MIN_WIDTH_PX}px, ${finalWidth}px, ${PANEL_MAX_WIDTH_RATIO * 100}vw)`;
+      commitPanelWidth(finalWidth);
     }
 
     function handlePointerCancel() {
@@ -185,6 +244,7 @@ export function DetailPanel({
     const node = asideRef.current;
     if (node != null) {
       node.style.width = "var(--panel-width)";
+      setMeasuredWidth(node.getBoundingClientRect().width);
     }
     clearPanelWidth();
   }
@@ -308,7 +368,7 @@ export function DetailPanel({
             : effectiveFullscreen
               ? "100vw"
               : persistedWidth != null
-                ? `clamp(360px, ${persistedWidth}px, 90vw)`
+                ? `clamp(${PANEL_MIN_WIDTH_PX}px, ${persistedWidth}px, ${PANEL_MAX_WIDTH_RATIO * 100}vw)`
                 : "var(--panel-width)",
           maxWidth: "100vw",
           background: "var(--surface-column)",
@@ -327,12 +387,24 @@ export function DetailPanel({
       >
         {!docked && !effectiveFullscreen && (
           <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize panel"
+            aria-valuenow={
+              currentWidthPx != null ? Math.round(currentWidthPx) : undefined
+            }
+            aria-valuemin={PANEL_MIN_WIDTH_PX}
+            aria-valuemax={Math.round(maxWidthPx)}
+            aria-hidden={!open}
+            tabIndex={open ? 0 : -1}
             onPointerDown={handleResizePointerDown}
             onClick={(e) => e.stopPropagation()}
             onDoubleClick={handleResizeDoubleClick}
             onPointerEnter={() => setHoveringHandle(true)}
             onPointerLeave={() => setHoveringHandle(false)}
-            aria-label="Resize panel"
+            onKeyDown={handleResizeKeyDown}
+            onFocus={() => setHandleFocused(true)}
+            onBlur={() => setHandleFocused(false)}
             style={{
               position: "absolute",
               left: 0,
@@ -347,6 +419,7 @@ export function DetailPanel({
                 hoveringHandle || resizing
                   ? "2px solid var(--accent)"
                   : "2px solid transparent",
+              ...focusRing(handleFocused),
             }}
           >
             {isCoarsePointer && (
@@ -434,20 +507,70 @@ export function DetailPanel({
                 >
                   Loading ticket…
                 </div>
+              ) : pinFetchError != null ? (
+                <div
+                  className="reading-surface"
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "var(--space-lg)",
+                  }}
+                >
+                  <Notice
+                    tone="destructive"
+                    icon={
+                      <AlertTriangle
+                        size={12}
+                        strokeWidth={2}
+                        aria-hidden="true"
+                        style={{ flex: "0 0 auto" }}
+                      />
+                    }
+                    label={
+                      pinFetchError === "not-found"
+                        ? "This ticket could not be found"
+                        : "Couldn't load this ticket"
+                    }
+                  />
+                  <div
+                    style={{
+                      fontSize: "var(--font-label)",
+                      lineHeight: "var(--line-label)",
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    {pinFetchError === "not-found"
+                      ? "It may have been deleted or moved out of range."
+                      : "Check your connection and try again."}
+                  </div>
+                  {pinFetchError === "network" && (
+                    <Button
+                      variant="secondary"
+                      onClick={onRetryPinFetch}
+                      style={{ alignSelf: "flex-start" }}
+                    >
+                      <RotateCw size={12} strokeWidth={2} aria-hidden="true" />
+                      Retry
+                    </Button>
+                  )}
+                </div>
               ) : (
                 <>
                   {hasLiveSession ? (
                     detailsExpanded && (
                       <div
-                        className="scroll-stable-y"
+                        className="scroll-stable-y reading-surface"
                         style={{
                           flex: "0 1 auto",
                           maxHeight: "40%",
                           overflowY: "auto",
-                          padding: "var(--space-xl)",
                         }}
                       >
-                        <ReferenceBlocks card={c} members={members} />
+                        <ReferenceBlocks
+                          card={c}
+                          members={members}
+                          membersActionable={membersActionable}
+                        />
                         {c && (
                           <CardTimeline
                             cardId={c.id}
@@ -459,14 +582,17 @@ export function DetailPanel({
                     )
                   ) : (
                     <div
-                      className="scroll-stable-y"
+                      className="scroll-stable-y reading-surface"
                       style={{
                         flex: c?.tmuxSession ? "0 1 auto" : "1 1 auto",
                         overflowY: "auto",
-                        padding: "var(--space-xl)",
                       }}
                     >
-                      <ReferenceBlocks card={c} members={members} />
+                      <ReferenceBlocks
+                        card={c}
+                        members={members}
+                        membersActionable={membersActionable}
+                      />
                       {c && (
                         <CardTimeline
                           cardId={c.id}
@@ -483,11 +609,11 @@ export function DetailPanel({
                       (c.prs != null && c.prs.length > 0) ||
                       (c.previews != null && c.previews.length > 0)) && (
                       <div
+                        className="reading-surface"
                         style={{
                           display: "flex",
                           flexDirection: "column",
                           gap: "var(--space-sm)",
-                          padding: "var(--space-xl)",
                           borderBottom: "1px solid var(--border)",
                         }}
                       >

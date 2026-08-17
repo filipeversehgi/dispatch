@@ -936,9 +936,12 @@ export async function searchCards(
 /**
  * Fetch a single card by id: GET /api/cards/:id. Resolves `null` on a 400 (unknown id) so a card
  * that has genuinely gone away reads distinctly from a network failure, which still throws. Used by
- * `App.tsx#selectSearchResult` to upgrade an out-of-window `CardSearchResult` into a full `Card`.
+ * `App.tsx#selectSearchResult` to upgrade an out-of-window `CardSearchResult` into a full `Card`
+ * plus its group members, if any.
  */
-export async function getCard(id: string): Promise<Card | null> {
+export async function getCard(
+  id: string,
+): Promise<{ card: Card; members: Card[] } | null> {
   const res = await fetch(`/api/cards/${encodeURIComponent(id)}`);
   if (res.status === 400) {
     return null;
@@ -946,5 +949,5 @@ export async function getCard(id: string): Promise<Card | null> {
   if (!res.ok) {
     throw new Error(`getCard failed: ${res.status} ${res.statusText}`);
   }
-  return (await res.json()) as Card;
+  return (await res.json()) as { card: Card; members: Card[] };
 }

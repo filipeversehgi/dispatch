@@ -2,6 +2,8 @@
 
 A "primitives + tokens" design system — not a theming framework, not a component-doc site. The goal is to kill the style-object and JSX duplication in the board UI (most visible in `DetailPanel.tsx`) by extracting a small set of presentational primitives, while keeping the existing styling approach unchanged.
 
+`design-contract.md` is the source of visual direction for the current milestone; the primitives documented here render against the type scale, spacing rhythm, radius, color, elevation, and motion values it fixes. The focus-versus-selection rule it authors is recorded below.
+
 ## The problem
 
 The frontend has massive style-object and JSX duplication: the secondary-button shape is re-inlined at many call sites, the "warning block" pattern (icon + label + muted body) is copy-pasted across Status / Start warning / Cleanup / stderr / Session-lost, and modal scaffolding is duplicated across `StartModal` and `CleanupModal`. That duplication is the extraction target.
@@ -25,6 +27,18 @@ The frontend has massive style-object and JSX duplication: the secondary-button 
 - **vanilla-extract** — new build-time dependency and a new paradigm; violates "no new heavy deps" and "zero behavior change." Reject.
 - **CSS Modules** — not a dependency (Vite supports it natively), but migrating the entire inline-styled surface is a large, churny paradigm switch that risks visual diffs. Defer (a viable future option, not now).
 - **Keep everything inline as-is** — rejected, because duplication is the stated problem.
+
+## Focus versus selection — DECISIVE
+
+**a keyboard focus ring must never look identical to selection.**
+
+What this means in this codebase: focus is expressed as `outline: 2px solid var(--accent)` with `outline-offset: 2px`, defined once in `src/web/primitives/focus-ring.ts` and consumed everywhere by spreading its return value onto a style object. Selection and needs-attention are expressed separately, as a border plus a 1px ring on the card itself. The failure mode this rule prevents: writing the focus ring as an accent box-shadow ring makes it structurally identical to the selection ring, indistinguishable to a keyboard user — exactly what shipped before this rule was written.
+
+Where an `overflow: hidden` ancestor clips the outline, drop the offset to 0 at that site. Never revert to an accent box-shadow ring to work around clipping.
+
+The accent's job, quoted verbatim from `design-contract.md`'s `## Color roles` accent row: "interactive/selected-state signal only: active view toggle, active inbox badge, drag-target highlight, needs-attention card border, resize-handle hover, active search result row." `docs/standards/design-contract.md` is the source of that job list and wins on any conflict with this file.
+
+Inter is named first in `--font-ui` but is not loaded as a webfont — there is no `@font-face`, no webfont link, and no bundled font file, so the app renders in the OS system font on every real machine. This is a deliberate decline for the current milestone, not an oversight: loading Inter would add bundle weight and FOUT/FOIT risk on the mobile tunnel path for no hierarchy gain, and hierarchy is what this milestone buys. Revisit only if a future milestone wants a genuinely different typographic voice.
 
 ## Component architecture — hooks-first
 

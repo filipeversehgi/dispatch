@@ -26,7 +26,7 @@ export function SelectionBar({
         background: "var(--surface-card)",
         border: "1px solid var(--border)",
         borderRadius: "var(--radius)",
-        boxShadow: "0 6px 16px rgba(0,0,0,0.45)",
+        boxShadow: "var(--shadow-float)",
         padding: "var(--space-sm) var(--space-lg)",
         display: "flex",
         alignItems: "center",

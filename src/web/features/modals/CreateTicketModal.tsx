@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { createLocalTicket, generateTicketDraft } from "../../lib/api.js";
 import { Button } from "../../primitives/Button.js";
 import { Field } from "../../primitives/Field.js";
+import { focusRing } from "../../primitives/focus-ring.js";
 import { Modal, type ModalControl } from "../../primitives/Modal.js";
 import { Notice } from "../../primitives/Notice.js";
 
@@ -10,9 +11,6 @@ interface CreateTicketModalProps {
 }
 
 type Phase = "prompt" | "generating" | "review";
-
-const focusRing = (on: boolean): string =>
-  on ? "0 0 0 2px var(--accent)" : "none";
 
 const captionStyle: CSSProperties = {
   fontSize: "var(--font-body)",
@@ -175,7 +173,7 @@ export function CreateTicketModal({ onClose }: CreateTicketModalProps) {
                   fontSize: "var(--font-body)",
                   lineHeight: "var(--line-body)",
                   outline: "none",
-                  boxShadow: focusRing(promptFocus),
+                  ...focusRing(promptFocus),
                 }}
               />
             </div>
@@ -228,7 +226,7 @@ export function CreateTicketModal({ onClose }: CreateTicketModalProps) {
                     fontSize: "var(--font-body)",
                     lineHeight: "var(--line-body)",
                     outline: "none",
-                    boxShadow: focusRing(titleFocus),
+                    ...focusRing(titleFocus),
                   }}
                 />
               </div>
@@ -259,7 +257,7 @@ export function CreateTicketModal({ onClose }: CreateTicketModalProps) {
                     fontSize: "var(--font-body)",
                     lineHeight: "var(--line-body)",
                     outline: "none",
-                    boxShadow: focusRing(descriptionFocus),
+                    ...focusRing(descriptionFocus),
                   }}
                 />
               </div>

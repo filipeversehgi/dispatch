@@ -17,6 +17,7 @@ import { IconButton } from "../../primitives/IconButton.js";
 interface MemberRowProps {
   member: CardModel;
   dense?: boolean;
+  actionable: boolean;
   groupPr?: PrInfo[];
   groupPreviews?: PreviewInfo[];
   groupPrsUnknown?: ProbeUnknown;
@@ -26,6 +27,7 @@ interface MemberRowProps {
 export function MemberRow({
   member,
   dense = true,
+  actionable,
   groupPr,
   groupPreviews,
   groupPrsUnknown,
@@ -80,7 +82,7 @@ export function MemberRow({
         />
       )}
       <SourceBadge source={member.source ?? "linear"} />
-      {member.source === "linear" && member.url != null && (
+      {actionable && member.source === "linear" && member.url != null && (
         <IconButton
           aria-label={`Open ${member.identifier} in Linear`}
           onPointerDown={(event) => event.stopPropagation()}

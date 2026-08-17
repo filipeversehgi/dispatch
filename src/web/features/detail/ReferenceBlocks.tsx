@@ -10,9 +10,14 @@ import { Notice } from "../../primitives/Notice.js";
 interface ReferenceBlocksProps {
   card: CardModel | null;
   members?: CardModel[];
+  membersActionable: boolean;
 }
 
-export function ReferenceBlocks({ card, members }: ReferenceBlocksProps) {
+export function ReferenceBlocks({
+  card,
+  members,
+  membersActionable,
+}: ReferenceBlocksProps) {
   const c = card;
   return (
     <>
@@ -25,12 +30,13 @@ export function ReferenceBlocks({ card, members }: ReferenceBlocksProps) {
             gap: "var(--space-xs)",
           }}
         >
-          <Field>{`Members (${members.length})`}</Field>
+          <Field section>{`Members (${members.length})`}</Field>
           {members.map((member) => (
             <MemberRow
               key={member.id}
               member={member}
               dense={false}
+              actionable={membersActionable}
               groupPr={c.prs}
               groupPreviews={c.previews}
               groupPrsUnknown={c.prsUnknown}

@@ -127,7 +127,7 @@ const jsonBodyErrorHandler: express.ErrorRequestHandler = (
  * same predicate the hoisted `remoteAuthRouter` uses, so a loopback or valid-session request is
  * unaffected and an unauthenticated non-loopback upgrade is rejected before it ever reaches
  * `terminalProxyUpgrade`/ttyd (T-72-05, T-73-02). Destroys the socket for any path outside
- * `/sessions/*` since that prefix is the only upgrade surface this phase creates.
+ * `/sessions/*` since that prefix is the only upgrade surface the app currently exposes.
  * @see docs/ARCHITECTURE.md#security-threat-model
  */
 function handleUpgrade(

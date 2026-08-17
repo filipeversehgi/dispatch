@@ -57,11 +57,11 @@ const monoScrollStyle: CSSProperties = {
   background: "var(--surface-card)",
   border: "1px solid var(--border)",
   borderRadius: "var(--radius)",
-  padding: "var(--space-xl)",
+  padding: "var(--space-xl) var(--space-lg)",
   maxHeight: "240px",
   overflowY: "auto",
   fontFamily: "var(--font-mono)",
-  fontSize: "var(--font-label)",
+  fontSize: "var(--font-micro)",
   fontWeight: "var(--weight-regular)",
   lineHeight: "var(--line-label)",
   color: "var(--text-muted)",
@@ -71,7 +71,7 @@ const monoScrollStyle: CSSProperties = {
 
 const monoClampStyle: CSSProperties = {
   fontFamily: "var(--font-mono)",
-  fontSize: "var(--font-label)",
+  fontSize: "var(--font-micro)",
   fontWeight: "var(--weight-regular)",
   lineHeight: "var(--line-label)",
   color: "var(--text-muted)",

@@ -3,16 +3,19 @@
  * NOT test code): imports no test framework, asserts nothing about app runtime
  * behavior, and lives outside src/ — the same category as eslint.config.ts.
  *
- * It answers one question as closed-set arithmetic instead of a read-through:
- * has every invariant ID in the frozen baseline reached a DURABLE home? A
- * durable home is an ID appearing inside a JSDoc block (/** ... *\/) in
- * src/**\/*.{ts,tsx} OR anywhere in docs/ARCHITECTURE.md. An ID sitting only in
- * a // body/line comment does NOT count as homed — that JSDoc-vs-body-comment
- * distinction (Pattern 2 in 10-RESEARCH.md) is what keeps the gate meaningful
- * while the original body comments still exist.
+ * It answers two questions as closed-set arithmetic instead of a read-through:
+ *
+ * 1. Has every invariant ID in the frozen baseline reached a DURABLE home? A
+ *    durable home is an ID appearing inside a JSDoc block (/** ... *\/) in
+ *    src/**\/*.{ts,tsx} OR anywhere in docs/ARCHITECTURE.md. An ID sitting only in
+ *    a // body/line comment does NOT count as homed — that JSDoc-vs-body-comment
+ *    distinction (Pattern 2 in 10-RESEARCH.md) is what keeps the gate meaningful
+ *    while the original body comments still exist.
+ * 2. Has any design literal this project deliberately retired come back into
+ *    src/**\/*.{ts,tsx}? See RETIRED_PATTERNS below.
  *
  * Modes:
- *   node scripts/check-invariants.mjs               diff + exit 0 iff MISSING, ORPHAN, and EXTRA are ALL empty
+ *   node scripts/check-invariants.mjs               diff + exit 0 iff MISSING, ORPHAN, EXTRA, and RETIRED are ALL empty
  *   node scripts/check-invariants.mjs --generate-baseline   print sorted labeled IDs (src + docs)
  *
  * The bare `⏺` protocol glyph is DELIBERATELY excluded from ID_RE: it is a
@@ -37,13 +40,23 @@ const ID_RE =
  * size so an accidentally emptied/truncated baseline (or an unratified
  * regeneration) can never silently disarm the gate into `PASS: 0/0`. Bump this
  * ONLY together with a deliberate, human-ratified baseline regeneration.
+ * @remarks Moved from 120 to 121 for the deliberate one-ID terminal-fence
+ * re-freeze (`NEW-20`) — see docs/ARCHITECTURE.md#design-system-invariants.
  */
-const FROZEN_COUNT = 115;
+const FROZEN_COUNT = 121;
 
 const SRC_DIR = "src";
 const SKIP_DIR = join("src", "web", "dist");
 const DOCS_PATH = join("docs", "ARCHITECTURE.md");
 const BASELINE_PATH = join("scripts", "invariant-baseline.txt");
+const SYNC_STRIP_PATH = join("src", "web", "features", "sync", "SyncStrip.tsx");
+const TOKENS_PATH = join("src", "web", "styles", "tokens.css");
+const BOARD_DIR = join("src", "web", "features", "board");
+const WEB_DIR = join("src", "web");
+const TERMINAL_CLIENT_PATHS = [
+  join("src", "web", "terminal-main.ts"),
+  join("src", "web", "terminal.html"),
+];
 
 /**
  * Recursively list every .ts/.tsx source file, skipping the built web bundle.
@@ -60,6 +73,221 @@ function walkSrc(dir) {
     else if (/\.(ts|tsx)$/.test(full)) out.push(full);
   }
   return out;
+}
+
+/**
+ * Design literals this project deliberately retired during the Phase 84 design-system
+ * migration, each replaced by a single named definition. `pattern` is a plain substring, not a
+ * regex — every one of these literals contains regex metacharacters, and a substring
+ * `includes()` check is both simpler and impossible to get subtly wrong.
+ */
+const RETIRED_PATTERNS = [
+  {
+    id: "NEW-15",
+    pattern: "0 0 0 2px var(--accent)",
+    replacement: "focusRing() in src/web/primitives/focus-ring.ts",
+  },
+  {
+    id: "NEW-16",
+    pattern: "0 6px 16px rgba(0,0,0,0.45)",
+    replacement: "var(--shadow-float) in src/web/styles/tokens.css",
+  },
+  {
+    id: "NEW-17",
+    pattern: "fontWeight: 800",
+    replacement: "wordmarkStyle in src/web/primitives/Glyph.tsx",
+  },
+];
+
+/**
+ * Find every line under src/**\/*.{ts,tsx} that still contains a retired design literal.
+ * @remarks Scans comments as well as code, deliberately: a comment that reproduces a retired
+ * literal is exactly how the pattern gets copied back into real code by the next reader. Only
+ * `.ts`/`.tsx` are scanned (via `walkSrc`), so `src/web/styles/tokens.css` can remain the
+ * canonical home of the float-shadow value this gate otherwise forbids.
+ * @returns Violation report lines, one per matching line.
+ */
+function checkRetiredPatterns() {
+  const violations = [];
+  for (const file of walkSrc(SRC_DIR)) {
+    const lines = readFileSync(file, "utf8").split("\n");
+    lines.forEach((line, i) => {
+      for (const { id, pattern, replacement } of RETIRED_PATTERNS) {
+        if (line.includes(pattern)) {
+          violations.push(
+            `${file}:${i + 1}: retired pattern ${id} — use ${replacement}`,
+          );
+        }
+      }
+    });
+  }
+  return violations;
+}
+
+/**
+ * The two sync-strip token cascades `SyncStrip.tsx` consumes, each asserted at both ends: the
+ * component reads the token, and `tokens.css` defines the wide value in `:root` plus the narrow
+ * value inside the 767px block.
+ */
+const STRIP_CASCADES = [
+  {
+    token: "--strip-padding",
+    consumer: 'padding: "0 var(--strip-padding)"',
+    wide: "--strip-padding: 24px;",
+    narrow: "--strip-padding: 16px;",
+    what: "strip padding",
+  },
+  {
+    token: "--strip-grid-columns",
+    consumer: 'gridTemplateColumns: "var(--strip-grid-columns)"',
+    wide: "--strip-grid-columns: minmax(0, 1fr) auto minmax(0, 1fr);",
+    narrow: "--strip-grid-columns: auto auto minmax(0, 1fr);",
+    what: "the strip zone grid",
+  },
+];
+
+/**
+ * File-scoped strip-cascade gate (`NEW-18`). Deliberately NOT a `RETIRED_PATTERNS` entry: the
+ * retired 16px padding literal below is a legitimate value in eight other files, so a global scan
+ * would false-positive on all of them — this reads only `SyncStrip.tsx`, where that same literal is
+ * a retired regression back to the strip's hardcoded pre-cascade padding. See
+ * docs/ARCHITECTURE.md#app-shell-zones for the durable home.
+ * @remarks Asserts the MECHANISM, not just the absence of the retired literal. A check that only
+ * fenced the retired literal would pass unchanged against any implementation at all — including one
+ * that silently reverted a cascade to a flat inline value — so it could never fail for the reason
+ * it exists. Both cascades are covered, because both encode a measured narrow-viewport fix that an
+ * inline value would erase while still rendering correctly at desktop widths, where it would go
+ * unnoticed.
+ * @returns Violation report lines, one per defect; a single line if a subject file is missing.
+ */
+function checkStripCascades() {
+  if (!existsSync(SYNC_STRIP_PATH)) {
+    return [
+      `${SYNC_STRIP_PATH}: file not found — NEW-18 cannot verify the strip cascades`,
+    ];
+  }
+  if (!existsSync(TOKENS_PATH)) {
+    return [
+      `${TOKENS_PATH}: file not found — NEW-18 cannot verify the strip cascades`,
+    ];
+  }
+  const violations = [];
+  const strip = readFileSync(SYNC_STRIP_PATH, "utf8");
+  strip.split("\n").forEach((line, i) => {
+    if (line.includes('padding: "0 var(--space-lg)"')) {
+      violations.push(
+        `${SYNC_STRIP_PATH}:${i + 1}: retired pattern NEW-18 — strip padding must read var(--strip-padding)`,
+      );
+    }
+  });
+
+  const tokens = readFileSync(TOKENS_PATH, "utf8");
+  const rootBlock = tokens.slice(0, tokens.indexOf("@media"));
+  const narrowStart = tokens.indexOf("@media (max-width: 767px)");
+  const narrowBlock =
+    narrowStart === -1
+      ? ""
+      : tokens.slice(narrowStart, tokens.indexOf("}\n}", narrowStart));
+
+  for (const cascade of STRIP_CASCADES) {
+    if (!strip.includes(cascade.consumer)) {
+      violations.push(
+        `${SYNC_STRIP_PATH}: retired pattern NEW-18 — ${cascade.what} must read var(${cascade.token})`,
+      );
+    }
+    if (!rootBlock.includes(cascade.wide)) {
+      violations.push(
+        `${TOKENS_PATH}: retired pattern NEW-18 — :root must define ${cascade.wide.replace(/;$/, "")}`,
+      );
+    }
+    if (!narrowBlock.includes(cascade.narrow)) {
+      violations.push(
+        `${TOKENS_PATH}: retired pattern NEW-18 — the max-width: 767px block must step ${cascade.narrow.replace(/;$/, "")}`,
+      );
+    }
+  }
+  return violations;
+}
+
+/**
+ * Directory-scoped board reading-rhythm gate (`NEW-19`). Deliberately NOT a `RETIRED_PATTERNS`
+ * entry: that array scans all of `src/**`, and `.reading-surface` is legitimately used outside
+ * `board/` (`Modal.tsx`, `DetailPanel.tsx`) — a global scan would false-positive on both.
+ * @remarks Quotes are stripped from each line before matching because a `.tsx` inline-style
+ * override is written with a quoted custom-property key (`"--line-body": "1.6"`), so the raw
+ * `--line-body:` declaration form never appears verbatim — stripping `"`/`'` first normalizes
+ * that form to the same shape as a plain CSS declaration.
+ * @remarks `var(--line-body)` CONSUMPTION is deliberately permitted, not fenced: the token
+ * resolves to 1.5 globally and only the `.reading-surface` class lifts it to 1.6
+ * (`src/web/styles/tokens.css`), and `docs/standards/design-contract.md`'s Typography table
+ * names `--line-body` as the card title's own mandated line height — barring consumption would
+ * force a card-height change, which criterion 2 forbids outright.
+ * @see docs/ARCHITECTURE.md#design-system-invariants
+ * @returns Violation report lines, one per matching line; a single line if the directory is missing.
+ */
+function checkBoardReadingRhythm() {
+  if (!existsSync(BOARD_DIR)) {
+    return [
+      `${BOARD_DIR}: directory not found — NEW-19 cannot verify board surfaces`,
+    ];
+  }
+  const violations = [];
+  for (const file of walkSrc(BOARD_DIR)) {
+    const lines = readFileSync(file, "utf8").split("\n");
+    lines.forEach((line, i) => {
+      const stripped = line.replaceAll('"', "").replaceAll("'", "");
+      if (stripped.includes("reading-surface")) {
+        violations.push(
+          `${file}:${i + 1}: retired pattern NEW-19 — the .reading-surface class is barred from src/web/features/board/`,
+        );
+      }
+      if (stripped.includes("--line-body:")) {
+        violations.push(
+          `${file}:${i + 1}: retired pattern NEW-19 — a local --line-body redefinition is barred from src/web/features/board/`,
+        );
+      }
+    });
+  }
+  return violations;
+}
+
+/**
+ * File-scoped embedded-terminal-client fence (`NEW-20`). The fenced subject is exactly
+ * `TERMINAL_CLIENT_PATHS` — there is no terminal-client directory on disk, so this names paths
+ * rather than a glob. `TerminalRegion.tsx` (the panel container that renders the terminal
+ * `<iframe>`) is a different file and is NOT fenced.
+ * @remarks This leg detects the fence's SUBJECT SET silently changing — a rename, a deletion, or
+ * a new sibling terminal-client file appearing beside the fenced two. It does NOT and CANNOT
+ * detect an edit to the CONTENTS of a fenced file: `check-invariants.mjs`'s entire mechanism is
+ * point-in-time pattern matching against the current tree, with zero `git diff`/`execSync` calls
+ * anywhere in this file. Proving the fenced files' CONTENTS are unchanged since a given commit is
+ * a separate, on-demand `git diff <base-sha>..HEAD -- src/web/terminal-main.ts
+ * src/web/terminal.html` run — see docs/ARCHITECTURE.md#design-system-invariants for the split.
+ * @see docs/ARCHITECTURE.md#design-system-invariants
+ * @returns Violation report lines: a missing/renamed fenced path (SUBJECT PRESENT), or a new
+ * `terminal*` sibling file outside the fence (SUBJECT COMPLETE).
+ */
+function checkTerminalFence() {
+  const violations = [];
+  for (const path of TERMINAL_CLIENT_PATHS) {
+    if (!existsSync(path)) {
+      violations.push(
+        `${path}: file not found — NEW-20's fenced terminal-client subject is missing or renamed`,
+      );
+    }
+  }
+  if (existsSync(WEB_DIR)) {
+    for (const entry of readdirSync(WEB_DIR)) {
+      if (!entry.startsWith("terminal")) continue;
+      const full = join(WEB_DIR, entry);
+      if (!TERMINAL_CLIENT_PATHS.includes(full)) {
+        violations.push(
+          `${full}: retired pattern NEW-20 — a new embedded-terminal-client file appeared outside the fenced set`,
+        );
+      }
+    }
+  }
+  return violations;
 }
 
 /**
@@ -155,13 +383,25 @@ function generateBaseline() {
 }
 
 /**
- * Run the invariant-home diff and set the process exit code.
- * @remarks All three diff legs gate the exit, not just MISSING: in a
+ * Run the invariant-home diff, the global retired-pattern scan, the file-scoped
+ * strip-cascade check, the directory-scoped board reading-rhythm check, and the
+ * file-scoped terminal-client fence, then set the process exit code.
+ * @remarks All five diff legs gate the exit, not just MISSING: in a
  * frozen-baseline world an EXTRA (homed but unbaselined — a typo'd ID in docs
  * or an unratified new ID in JSDoc) and an ORPHAN (present in src but
  * unbaselined) are always defects, and an informational-only leg would let
- * them accumulate silently through the body-comment deletion phases.
- * @returns Nothing; exits 0 iff MISSING, ORPHAN, and EXTRA are all empty.
+ * them accumulate silently through the body-comment deletion phases. The
+ * retired-pattern leg, the strip-cascade leg, the board reading-rhythm leg, and
+ * the terminal-fence leg are all independent of the ID-baseline arithmetic
+ * above — a design literal coming back, or the terminal-client subject set
+ * changing, is a defect regardless of whether any invariant ID also moved.
+ * The strip-cascade leg (`NEW-18`), the board reading-rhythm leg (`NEW-19`),
+ * and the terminal-fence leg (`NEW-20`) are all deliberately scoped (file- or
+ * directory-scoped) rather than folded into `RETIRED_PATTERNS`, since each
+ * pattern is legitimate outside its own scope. The terminal-fence leg only
+ * proves the fenced SUBJECT SET is intact — it cannot prove the fenced files'
+ * CONTENTS are unchanged; see `checkTerminalFence`'s own JSDoc for the split.
+ * @returns Nothing; exits 0 iff MISSING, ORPHAN, EXTRA, RETIRED, STRIP CASCADES, BOARD READING RHYTHM, and TERMINAL FENCE are all empty.
  */
 function run() {
   const home = new Set();
@@ -179,17 +419,44 @@ function run() {
   const missing = diffSorted(baseline, home);
   const orphan = diffSorted(present, baseline);
   const extra = diffSorted(home, baseline);
+  const retired = checkRetiredPatterns();
+  const stripCascades = checkStripCascades();
+  const boardReadingRhythm = checkBoardReadingRhythm();
+  const terminalFence = checkTerminalFence();
 
   report("MISSING (baseline - home)", missing);
   report("ORPHAN  (present - baseline)", orphan);
   report("EXTRA   (home - baseline)", extra);
+  report("RETIRED (design literals that came back)", retired);
+  report("STRIP CASCADES (NEW-18)", stripCascades);
+  report("BOARD READING RHYTHM (NEW-19)", boardReadingRhythm);
+  report("TERMINAL FENCE (NEW-20)", terminalFence);
 
-  const defects = missing.length + orphan.length + extra.length;
+  const defects =
+    missing.length +
+    orphan.length +
+    extra.length +
+    retired.length +
+    stripCascades.length +
+    boardReadingRhythm.length +
+    terminalFence.length;
   console.log(
     `\n${defects === 0 ? "PASS" : "FAIL"}: ${baseline.size - missing.length}/${baseline.size} invariants homed` +
       (missing.length ? ` (${missing.length} missing a home)` : "") +
       (orphan.length || extra.length
         ? ` (${orphan.length} orphan, ${extra.length} extra — unbaselined IDs)`
+        : "") +
+      (retired.length
+        ? ` (${retired.length} retired pattern(s) reappeared)`
+        : "") +
+      (stripCascades.length
+        ? ` (${stripCascades.length} strip-cascade regression(s))`
+        : "") +
+      (boardReadingRhythm.length
+        ? ` (${boardReadingRhythm.length} board reading-rhythm regression(s))`
+        : "") +
+      (terminalFence.length
+        ? ` (${terminalFence.length} terminal-fence regression(s))`
         : ""),
   );
   process.exit(defects === 0 ? 0 : 1);

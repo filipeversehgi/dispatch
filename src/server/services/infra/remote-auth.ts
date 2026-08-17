@@ -141,7 +141,7 @@ export function verifyCode(submitted: string): boolean {
 /**
  * Whether a credential submission is currently allowed under the single global progressive
  * backoff bucket. A shared bucket (not per-IP) is deliberate: the immediate TCP peer of every
- * request this phase can see is always `127.0.0.1` (a local forwarder or curl), so a per-source
+ * request this handler can see is always `127.0.0.1` (a local forwarder or curl), so a per-source
  * map would only ever populate one key.
  */
 export function checkRateLimit(): { allowed: boolean; retryAfterMs: number } {

@@ -38,8 +38,8 @@ export function SessionLostSection({
   return (
     <div
       style={{
-        margin: "0 var(--space-xl) var(--space-xl)",
-        paddingTop: "var(--space-lg)",
+        margin: "0 var(--space-lg) var(--space-xl)",
+        paddingTop: "var(--space-xl)",
         borderTop: "1px solid var(--border)",
         display: "flex",
         flexDirection: "column",

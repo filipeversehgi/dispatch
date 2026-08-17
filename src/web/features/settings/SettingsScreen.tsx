@@ -51,6 +51,7 @@ import {
 import { playChime } from "../../lib/chime.js";
 import { Button } from "../../primitives/Button.js";
 import { Field } from "../../primitives/Field.js";
+import { focusRing } from "../../primitives/focus-ring.js";
 import { IconButton } from "../../primitives/IconButton.js";
 import { Modal, type ModalControl } from "../../primitives/Modal.js";
 import { Notice } from "../../primitives/Notice.js";
@@ -244,9 +245,6 @@ const MULTI_COPY: Record<
     emptyText: "No teams found",
   },
 };
-
-const focusRing = (on: boolean): string =>
-  on ? "0 0 0 2px var(--accent)" : "none";
 
 type PreviewState =
   | { status: "counting" }
@@ -481,7 +479,7 @@ function FiltersTabSection({ filters }: FiltersTabSectionProps) {
                       accentColor: "var(--accent)",
                       borderRadius: "var(--radius)",
                       outline: "none",
-                      boxShadow: focusRing(cycleFocus),
+                      ...focusRing(cycleFocus),
                       flex: "0 0 auto",
                     }}
                   />
@@ -592,7 +590,7 @@ function FiltersTabSection({ filters }: FiltersTabSectionProps) {
                   accentColor: "var(--accent)",
                   borderRadius: "var(--radius)",
                   outline: "none",
-                  boxShadow: focusRing(activeFocus),
+                  ...focusRing(activeFocus),
                   flex: "0 0 auto",
                 }}
               />
@@ -1157,8 +1155,7 @@ function NotificationsTabSection({
             style={{
               accentColor: "var(--accent)",
               borderRadius: "var(--radius)",
-              outline: "none",
-              boxShadow: focusRing(soundFocus),
+              ...focusRing(soundFocus),
               flex: "0 0 auto",
             }}
           />
@@ -1301,7 +1298,7 @@ function CleanupTabSection({ cleanupTab }: CleanupTabSectionProps) {
             fontSize: "var(--font-body)",
             lineHeight: "var(--line-body)",
             outline: "none",
-            boxShadow: focusRing(focused),
+            ...focusRing(focused),
           }}
         />
         <span
@@ -1430,8 +1427,7 @@ function ResetLink({ onClick }: ResetLinkProps) {
         fontSize: "var(--font-label)",
         lineHeight: "var(--line-label)",
         cursor: "pointer",
-        outline: "none",
-        boxShadow: focusRing(focus),
+        ...focusRing(focus),
       }}
     >
       <RotateCcw size={12} strokeWidth={2} aria-hidden="true" />
@@ -1551,8 +1547,7 @@ function ModelsTabSection({ modelsTab }: ModelsTabSectionProps) {
               fontFamily: "var(--font-mono)",
               fontSize: "var(--font-body)",
               lineHeight: "var(--line-body)",
-              outline: "none",
-              boxShadow: focusRing(focused),
+              ...focusRing(focused),
             }}
           />
           <span
@@ -1873,7 +1868,7 @@ function BackToAppButton({ onClick, ref }: BackToAppButtonProps) {
         ...navButtonBaseStyle,
         background: hover ? "var(--surface-card-hover)" : "transparent",
         color: "var(--text-muted)",
-        boxShadow: focusRing(focused),
+        ...focusRing(focused),
       }}
     >
       <ArrowLeft size={14} strokeWidth={2} aria-hidden="true" />
@@ -1914,7 +1909,7 @@ function SettingsNavItem({
             ? "var(--surface-card-hover)"
             : "transparent",
         color: active ? "var(--text)" : "var(--text-muted)",
-        boxShadow: focusRing(focused),
+        ...focusRing(focused),
       }}
     >
       <Icon size={14} strokeWidth={2} aria-hidden="true" />
@@ -2060,7 +2055,7 @@ export function SettingsScreen({
               disabled={cleanupTab.validationError}
               loading={cleanupTab.saving}
             >
-              {cleanupTab.saving ? "Saving…" : "Save"}
+              {cleanupTab.saving ? "Saving…" : "Save cleanup delay"}
             </Button>
           </div>
         )}

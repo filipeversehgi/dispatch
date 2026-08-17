@@ -3,6 +3,7 @@ import type { Card as CardModel } from "../../../shared/types.js";
 import { generateGroupTitle, startGroup } from "../../lib/api.js";
 import { Button } from "../../primitives/Button.js";
 import { Field } from "../../primitives/Field.js";
+import { focusRing } from "../../primitives/focus-ring.js";
 import { Modal, type ModalControl } from "../../primitives/Modal.js";
 import { Notice } from "../../primitives/Notice.js";
 import { MemberRow } from "../board/index.js";
@@ -19,9 +20,6 @@ interface GroupStartModalProps {
   onStarted?: () => void;
   onEditPlaybooks: () => void;
 }
-
-const focusRing = (on: boolean): string =>
-  on ? "0 0 0 2px var(--accent)" : "none";
 
 export function GroupStartModal({
   members,
@@ -179,7 +177,7 @@ export function GroupStartModal({
               fontSize: "var(--font-body)",
               lineHeight: "var(--line-body)",
               outline: "none",
-              boxShadow: focusRing(titleFocus),
+              ...focusRing(titleFocus),
             }}
           />
         </div>
@@ -201,9 +199,9 @@ export function GroupStartModal({
             gap: "var(--space-xs)",
           }}
         >
-          <Field>{`Members (${members.length})`}</Field>
+          <Field section>{`Members (${members.length})`}</Field>
           {members.map((member) => (
-            <MemberRow key={member.id} member={member} />
+            <MemberRow key={member.id} member={member} actionable={true} />
           ))}
         </div>
 
@@ -234,7 +232,7 @@ export function GroupStartModal({
               fontSize: "var(--font-body)",
               lineHeight: "var(--line-body)",
               outline: "none",
-              boxShadow: focusRing(textareaFocus),
+              ...focusRing(textareaFocus),
             }}
           />
         </div>

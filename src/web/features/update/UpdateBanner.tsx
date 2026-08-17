@@ -32,7 +32,7 @@ const rowStyle = {
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  padding: "0 var(--space-lg)",
+  padding: "0 var(--strip-padding)",
   borderBottom: "1px solid var(--border)",
   background: "var(--surface-column)",
   fontSize: "var(--font-label)",

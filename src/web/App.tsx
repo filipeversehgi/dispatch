@@ -12,9 +12,10 @@ import {
 import { useTransitionNotifications } from "./hooks/useTransitionNotifications.js";
 import { AppShell } from "./AppShell.js";
 import { SyncStrip } from "./features/sync/index.js";
-import { Glyph } from "./primitives/Glyph.js";
+import { Glyph, wordmarkStyle } from "./primitives/Glyph.js";
 import {
   actionablePinnedCard,
+  actionablePinnedMembers,
   Board,
   inboxWaitingCount,
   membersOf,
@@ -66,15 +67,7 @@ function BootScreen({ connection }: { connection: ConnectionStatus }) {
         }}
       >
         <Glyph size={44} />
-        <span
-          style={{
-            fontWeight: 800,
-            fontSize: "var(--font-display)",
-            letterSpacing: "0.18em",
-          }}
-        >
-          DISPATCH
-        </span>
+        <span style={wordmarkStyle}>DISPATCH</span>
       </div>
       <div
         style={{
@@ -101,6 +94,10 @@ export function App() {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [pinned, setPinned] = useState<PinnedCard | null>(null);
   const [pinnedHydrating, setPinnedHydrating] = useState(false);
+  const [pinFetchError, setPinFetchError] = useState<{
+    id: string;
+    kind: "not-found" | "network";
+  } | null>(null);
   const pinFetchGenRef = useRef(0);
   const { board, connection } = useBoardStream(doneLimit, {
     onActivity: feed.append,
@@ -108,7 +105,12 @@ export function App() {
     onBoardUpdate: (snapshot) => {
       if (selectedCardId == null) return;
       const live = snapshot.cards.find((card) => card.id === selectedCardId);
-      if (live != null) setPinned({ card: live, kind: "hydrated" });
+      if (live != null)
+        setPinned({
+          card: live,
+          kind: "hydrated",
+          members: membersOf(live, snapshot.cards),
+        });
     },
   });
 
@@ -151,16 +153,60 @@ export function App() {
   const selectedCard =
     board?.cards.find((card) => card.id === selectedCardId) ??
     (pinned?.card.id === selectedCardId ? pinned.card : null);
+  const selectedCardInWindow =
+    board?.cards.some((card) => card.id === selectedCardId) === true;
   const selectedCardMembers =
-    selectedCard != null && selectedCard.source === "group"
-      ? membersOf(selectedCard, board?.cards ?? [])
-      : undefined;
+    selectedCard == null || selectedCard.source !== "group"
+      ? undefined
+      : selectedCardInWindow
+        ? membersOf(selectedCard, board?.cards ?? [])
+        : pinned?.card.id === selectedCardId
+          ? pinned.members
+          : [];
+  const membersActionable =
+    selectedCardInWindow || actionablePinnedMembers(selectedCardId, pinned);
+  const pinFetchErrorKind =
+    !selectedCardInWindow &&
+    pinFetchError != null &&
+    pinFetchError.id === selectedCardId
+      ? pinFetchError.kind
+      : null;
 
   function selectCard(id: string | null) {
     setSelectedCardId(id);
     if (id == null) return;
     const live = board?.cards.find((card) => card.id === id);
-    if (live != null) setPinned({ card: live, kind: "hydrated" });
+    if (live != null)
+      setPinned({
+        card: live,
+        kind: "hydrated",
+        members: membersOf(live, board?.cards ?? []),
+      });
+  }
+
+  function hydratePinned(id: string) {
+    setPinnedHydrating(true);
+    const gen = ++pinFetchGenRef.current;
+    getCard(id)
+      .then((fetched) => {
+        if (gen !== pinFetchGenRef.current) return;
+        if (fetched != null) {
+          setPinned({
+            card: fetched.card,
+            kind: "hydrated",
+            members: fetched.members,
+          });
+          setPinFetchError(null);
+        } else {
+          setPinFetchError({ id, kind: "not-found" });
+        }
+        setPinnedHydrating(false);
+      })
+      .catch(() => {
+        if (gen !== pinFetchGenRef.current) return;
+        setPinFetchError({ id, kind: "network" });
+        setPinnedHydrating(false);
+      });
   }
 
   function selectSearchResult(result: CardSearchResult) {
@@ -170,19 +216,8 @@ export function App() {
       setPinnedHydrating(false);
       return;
     }
-    setPinned({ card: stubToCard(result), kind: "stub" });
-    setPinnedHydrating(true);
-    const gen = ++pinFetchGenRef.current;
-    getCard(result.id)
-      .then((card) => {
-        if (gen !== pinFetchGenRef.current) return;
-        if (card != null) setPinned({ card, kind: "hydrated" });
-        setPinnedHydrating(false);
-      })
-      .catch(() => {
-        if (gen !== pinFetchGenRef.current) return;
-        setPinnedHydrating(false);
-      });
+    setPinned({ card: stubToCard(result), kind: "stub", members: [] });
+    hydratePinned(result.id);
   }
 
   useEffect(() => {
@@ -373,14 +408,16 @@ export function App() {
       detail={
         <DetailPanel
           card={selectedCard}
-          hydrating={
-            pinnedHydrating &&
-            board?.cards.some((card) => card.id === selectedCardId) !== true
-          }
+          hydrating={pinnedHydrating && !selectedCardInWindow}
+          pinFetchError={pinFetchErrorKind}
+          onRetryPinFetch={() => {
+            if (selectedCardId != null) hydratePinned(selectedCardId);
+          }}
           editors={board?.editors}
           activityEvents={feed.events}
           cardIdentifiers={cardIdentifiers}
           members={selectedCardMembers}
+          membersActionable={membersActionable}
           onClose={() => {
             setSelectedCardId(null);
             setPinned(null);

@@ -9,6 +9,7 @@ import {
 import { searchCards } from "../../lib/api.js";
 import { CAROUSEL_QUERY, useMediaQuery } from "../../hooks/useMediaQuery.js";
 import { Field } from "../../primitives/Field.js";
+import { focusRing } from "../../primitives/focus-ring.js";
 import { IconButton } from "../../primitives/IconButton.js";
 import { COLUMN_ACCENT, COLUMN_LABELS } from "./column-meta.js";
 
@@ -189,7 +190,7 @@ export function SearchBox({
     fontSize: "var(--font-label)",
     lineHeight: "var(--line-label)",
     outline: "none",
-    boxShadow: inputFocused ? "0 0 0 2px var(--accent)" : "none",
+    ...focusRing(inputFocused),
   } as const;
 
   const inputField = (
@@ -224,7 +225,7 @@ export function SearchBox({
         }}
         onKeyDown={handleKeyDown}
         onFocus={(event) => {
-          setInputFocused(true);
+          setInputFocused(event.currentTarget.matches(":focus-visible"));
           setDismissed(false);
           setAnchorRect(event.currentTarget.getBoundingClientRect());
         }}
@@ -292,7 +293,7 @@ export function SearchBox({
             flex: "0 0 auto",
             background: `color-mix(in srgb, ${COLUMN_ACCENT[result.column]} 16%, var(--surface-column))`,
             color: COLUMN_ACCENT[result.column],
-            borderRadius: "var(--radius)",
+            borderRadius: "var(--radius-sm)",
             padding: "0 var(--space-xs)",
             fontSize: "var(--font-label)",
             whiteSpace: "nowrap",
@@ -316,8 +317,8 @@ export function SearchBox({
         overflowY: "auto",
         background: "var(--surface-card)",
         border: "1px solid var(--border)",
-        borderRadius: "var(--radius)",
-        boxShadow: "0 6px 16px rgba(0,0,0,0.45)",
+        borderRadius: "var(--radius-lg)",
+        boxShadow: "var(--shadow-float)",
       }}
     >
       {status === "loading" ? (
@@ -395,8 +396,8 @@ export function SearchBox({
               width: `${panelWidth}px`,
               background: "var(--surface-card)",
               border: "1px solid var(--border)",
-              borderRadius: "var(--radius)",
-              boxShadow: "0 6px 16px rgba(0,0,0,0.45)",
+              borderRadius: "var(--radius-lg)",
+              boxShadow: "var(--shadow-float)",
               padding: `${GAP}px 0`,
               display: "flex",
               flexDirection: "column",

@@ -2,9 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import type { RefObject } from "react";
 import { ChevronDown } from "lucide-react";
 import type { FilterOption } from "../../../shared/types.js";
-
-const focusRing = (on: boolean): string =>
-  on ? "0 0 0 2px var(--accent)" : "none";
+import { focusRing } from "../../primitives/focus-ring.js";
 
 interface OptionRowProps {
   id: string;
@@ -53,7 +51,7 @@ function OptionRow({
           accentColor: "var(--accent)",
           borderRadius: "var(--radius)",
           outline: "none",
-          boxShadow: focusRing(checkFocus),
+          ...focusRing(checkFocus),
           flex: "0 0 auto",
         }}
       />
@@ -209,7 +207,7 @@ export function MultiSelect({
           gap: "var(--space-sm)",
           cursor: "pointer",
           outline: "none",
-          boxShadow: focusRing(triggerFocus),
+          ...focusRing(triggerFocus),
         }}
       >
         <span
@@ -246,7 +244,8 @@ export function MultiSelect({
             zIndex: 1,
             background: "var(--surface-card)",
             border: "1px solid var(--border)",
-            borderRadius: "var(--radius)",
+            borderRadius: "var(--radius-lg)",
+            boxShadow: "var(--shadow-float)",
             display: "flex",
             flexDirection: "column",
           }}
@@ -279,7 +278,7 @@ export function MultiSelect({
                 fontSize: "var(--font-body)",
                 lineHeight: 1.5,
                 outline: "none",
-                boxShadow: focusRing(searchFocus),
+                ...focusRing(searchFocus),
               }}
             />
           </div>
